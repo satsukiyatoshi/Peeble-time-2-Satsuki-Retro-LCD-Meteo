@@ -20,18 +20,18 @@ Many thanks to the authors of the projects that provided inspiration and a techn
 
 ## Features
 
-• 24-hour or 12-hour time with A/P indicator
-• DD-MM or MM-DD date format
-• Day of the week in French or English
-• Hourly weather forecast for the next 10 hours
-• Retro weather icons in monochrome or color
-• Temperature in °C or °F
-• Current city name and daily weather trend
-• Sunrise and sunset information
-• Distance unit selectable between kilometers and miles
-• Ghost LCD segments for an authentic digital-display look
-• French and English interface
-• Color palette designed for the Pebble Time 2 color display
+• 24-hour or 12-hour time with A/P indicator<br>
+• DD-MM or MM-DD date format<br>
+• Day of the week in French or English<br>
+• Hourly weather forecast for the next 10 hours<br>
+• Retro weather icons in monochrome or color<br>
+• Temperature in °C or °F<br>
+• Current city name and daily weather trend<br>
+• Sunrise and sunset information<br>
+• Distance unit selectable between kilometers and miles<br>
+• Ghost LCD segments for an authentic digital-display look<br>
+• French and English interface<br>
+• Color palette designed for the Pebble Time 2 color display<br>
 
 • Configurable complication:
 * steps
@@ -53,13 +53,13 @@ Weather information is refreshed regularly while the watchface communicates with
 ## Configuration
 
 The main options are available from the watchface settings page in the Pebble app:
-• language
-• date format
-• 12-hour / 24-hour time
-• weather icon style
-• complication
-• distance unit
-• temperature unit
+• language<br>
+• date format<br>
+• 12-hour / 24-hour time<br>
+• weather icon style<br>
+• complication<br>
+• distance unit<br>
+• temperature unit<br>
 
 
 ## Compatibility
@@ -110,17 +110,17 @@ Un grand merci aux auteurs des projets qui ont servi d'inspiration et de base te
 
 ## Fonctionnalités
 
-• Heure au format 24 h ou 12 h avec indicateur A/P
-• Date au format JJ-MM ou MM-JJ
-• Jour de la semaine en français ou en anglais
-• Prévisions météo heure par heure pour les 10 prochaines heures
-• Icônes météo rétro en monochrome ou en couleurs
-• Température en °C ou °F
-• Nom de la ville et tendance météo du jour
-• Lever et coucher du soleil
-• Unité de distance configurable en kilomètres ou miles
-• Segments LCD fantômes pour renforcer l'aspect écran numérique rétro
-• Interface française et anglaise
+• Heure au format 24 h ou 12 h avec indicateur A/P<br>
+• Date au format JJ-MM ou MM-JJ<br>
+• Jour de la semaine en français ou en anglais<br>
+• Prévisions météo heure par heure pour les 10 prochaines heures<br>
+• Icônes météo rétro en monochrome ou en couleurs<br>
+• Température en °C ou °F<br>
+• Nom de la ville et tendance météo du jour<br>
+• Lever et coucher du soleil<br>
+• Unité de distance configurable en kilomètres ou miles<br>
+• Segments LCD fantômes pour renforcer l'aspect écran numérique rétro<br>
+• Interface française et anglaise<br>
 • Couleurs et éléments graphiques pensés pour l'écran couleur de la Pebble Time 2
 
 • Complication configurable :
@@ -144,13 +144,13 @@ Les prévisions sont actualisées régulièrement lorsque la watchface communiqu
 
 Les principaux réglages sont accessibles depuis la page de configuration de la watchface dans l'application Pebble :
 
-• langue
-• format de date
-• format 12 h / 24 h
-• style des icônes météo
-• complication
-• unité de distance
-• unité de température
+• langue<br>
+• format de date<br>
+• format 12 h / 24 h<br>
+• style des icônes météo<br>
+• complication<br>
+• unité de distance<br>
+• unité de température<br>
 
 
 ## Compatibilité
