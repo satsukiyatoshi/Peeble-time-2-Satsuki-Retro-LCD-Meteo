@@ -3,6 +3,10 @@
 A retro digital LCD-inspired watchface designed for the Pebble Time 2.
 Satsuki Retro LCD Meteo combines a highly readable digital clock with weather information and several configurable complications in a colorful retro LCD interface.
 
+![SatsukiRetroLCD Screenshot](resources/screenshots/pebble_screenshot_2026-10-08_12-20-31.png)
+
+![SatsukiRetroLCD Screenshot](resources/screenshots/pebble_screenshot_2026-10-08_12-15-47.png)
+
 ## Inspiration and project origins
 
 The design of Satsuki Retro LCD Meteo is notably inspired by **Quartz by Dalpek**, a retro LCD watchface for the Pebble Time 2: https://apps.repebble.com/quartz-by-dalpek_31cfe29ecd814df4b5ca8bb4
@@ -78,6 +82,10 @@ This is an independent project and is not affiliated with Dalpek, sgitaize, Casi
 
 Une watchface rétro inspirée des écrans LCD des montres numériques classiques, conçue pour la Pebble Time 2.
 Satsuki Retro LCD Meteo combine une horloge numérique très lisible, des informations météo et plusieurs complications configurables dans une interface LCD rétro colorée.
+
+![SatsukiRetroLCD Screenshot](resources/screenshots/pebble_screenshot_2026-10-08_12-15-47.png)
+
+![SatsukiRetroLCD Screenshot](resources/screenshots/pebble_screenshot_2026-10-08_12-20-31.png)
 
 ## Inspiration et origine du projet
 
