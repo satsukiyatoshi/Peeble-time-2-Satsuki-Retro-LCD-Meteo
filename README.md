@@ -23,6 +23,7 @@ Many thanks to the authors of the projects that provided inspiration and a techn
 ## Features
 
 • 24-hour or 12-hour time with A/P indicator<br>
+• Multiple segments font available (7 and 14 segments)<br>
 • DD-MM or MM-DD date format<br>
 • Day of the week in French or English<br>
 • Hourly weather forecast for the next 10 hours<br>
@@ -56,6 +57,8 @@ Weather information is refreshed regularly while the watchface communicates with
 
 The main options are available from the watchface settings page in the Pebble app:
 • language<br>
+• Segment font<br>
+• Ghosting type<br>
 • date format<br>
 • 12-hour / 24-hour time<br>
 • weather icon style<br>
@@ -115,6 +118,8 @@ Un grand merci aux auteurs des projets qui ont servi d'inspiration et de base te
 ## Fonctionnalités
 
 • Heure au format 24 h ou 12 h avec indicateur A/P<br>
+• Plusieurs police pour les segments (en 7 et 14 segments)<br>
+• Intensité du ghosting<br>
 • Date au format JJ-MM ou MM-JJ<br>
 • Jour de la semaine en français ou en anglais<br>
 • Prévisions météo heure par heure pour les 10 prochaines heures<br>
@@ -149,6 +154,8 @@ Les prévisions sont actualisées régulièrement lorsque la watchface communiqu
 Les principaux réglages sont accessibles depuis la page de configuration de la watchface dans l'application Pebble :
 
 • langue<br>
+• police<br>
+• niveau de ghosting<br>
 • format de date<br>
 • format 12 h / 24 h<br>
 • style des icônes météo<br>
