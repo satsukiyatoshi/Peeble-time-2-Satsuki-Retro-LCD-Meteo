@@ -1,7 +1,7 @@
 {
   "name": "satsukiretrolcdmeteo",
   "author": "Satsuki",
-  "version": "1.0.5",
+  "version": "1.1.0",
   "keywords": [
     "pebble-app"
   ],
@@ -29,39 +29,172 @@
       "media": [
         {
           "type": "font",
-          "name": "FONT_DSEG_TIME48",
+          "name": "FONT_DSEG_C_TIME48",
           "file": "fonts/DSEG7Classic-Bold.ttf",
           "characterRegex": "[0-9:. -]",
           "size": 48
         },
         {
           "type": "font",
-          "name": "FONT_DSEG_TIME38",
+          "name": "FONT_DSEG_C_BOLD20",
           "file": "fonts/DSEG7Classic-Bold.ttf",
-          "characterRegex": "[0-9:]",
-          "size": 38
+          "characterRegex": "[0-9. +:-]",
+          "size": 20
         },
-		{
-		  "type": "font",
-		  "name": "FONT_DSEG_DATE20",
-		  "file": "fonts/DSEG7Classic-Bold.ttf",
-		  "characterRegex": "[0-9. -]",
-		  "size": 20
-		},
-		{
-		  "type": "font",
-		  "name": "FONT_DSEG_COMP20",
-		  "file": "fonts/DSEG7Classic-Bold.ttf",
-		  "characterRegex": "[0-9. +:-]",
-		  "size": 20
-		},
-		{
-		  "type": "font",
-		  "name": "FONT_DSEG_COMP20_REG",
-		  "file": "fonts/DSEG7Classic-Regular.ttf",
-		  "characterRegex": "[0-9. +:-]",
-		  "size": 20
-		},
+        {
+          "type": "font",
+          "name": "FONT_DSEG_C_REG20",
+          "file": "fonts/DSEG7Classic-Regular.ttf",
+          "characterRegex": "[0-9. +:-]",
+          "size": 20
+        },
+        {
+          "type": "font",
+          "name": "FONT_DSEG_CM_TIME48",
+          "file": "fonts/DSEG7ClassicMini-Bold.ttf",
+          "characterRegex": "[0-9:. -]",
+          "size": 48
+        },
+        {
+          "type": "font",
+          "name": "FONT_DSEG_CM_BOLD20",
+          "file": "fonts/DSEG7ClassicMini-Bold.ttf",
+          "characterRegex": "[0-9. +:-]",
+          "size": 20
+        },
+        {
+          "type": "font",
+          "name": "FONT_DSEG_CM_REG20",
+          "file": "fonts/DSEG7ClassicMini-Regular.ttf",
+          "characterRegex": "[0-9. +:-]",
+          "size": 20
+        },
+        {
+          "type": "font",
+          "name": "FONT_DSEG_M_TIME48",
+          "file": "fonts/DSEG7Modern-Bold.ttf",
+          "characterRegex": "[0-9:. -]",
+          "size": 48
+        },
+        {
+          "type": "font",
+          "name": "FONT_DSEG_M_BOLD20",
+          "file": "fonts/DSEG7Modern-Bold.ttf",
+          "characterRegex": "[0-9. +:-]",
+          "size": 20
+        },
+        {
+          "type": "font",
+          "name": "FONT_DSEG_M_REG20",
+          "file": "fonts/DSEG7Modern-Regular.ttf",
+          "characterRegex": "[0-9. +:-]",
+          "size": 20
+        },
+        {
+          "type": "font",
+          "name": "FONT_DSEG_MM_TIME48",
+          "file": "fonts/DSEG7ModernMini-Bold.ttf",
+          "characterRegex": "[0-9:. -]",
+          "size": 48
+        },
+        {
+          "type": "font",
+          "name": "FONT_DSEG_MM_BOLD20",
+          "file": "fonts/DSEG7ModernMini-Bold.ttf",
+          "characterRegex": "[0-9. +:-]",
+          "size": 20
+        },
+        {
+          "type": "font",
+          "name": "FONT_DSEG_MM_REG20",
+          "file": "fonts/DSEG7ModernMini-Regular.ttf",
+          "characterRegex": "[0-9. +:-]",
+          "size": 20
+        },
+        {
+          "type": "font",
+          "name": "FONT_DSEG_FC_TIME48",
+          "file": "fonts/DSEG14Classic-Bold.ttf",
+          "characterRegex": "[0-9:. ~-]",
+          "size": 48
+        },
+        {
+          "type": "font",
+          "name": "FONT_DSEG_FC_BOLD20",
+          "file": "fonts/DSEG14Classic-Bold.ttf",
+          "characterRegex": "[0-9. +:~-]",
+          "size": 20
+        },
+        {
+          "type": "font",
+          "name": "FONT_DSEG_FC_REG20",
+          "file": "fonts/DSEG14Classic-Regular.ttf",
+          "characterRegex": "[0-9. +:~-]",
+          "size": 20
+        },
+        {
+          "type": "font",
+          "name": "FONT_DSEG_FCM_TIME48",
+          "file": "fonts/DSEG14ClassicMini-Bold.ttf",
+          "characterRegex": "[0-9:. ~-]",
+          "size": 48
+        },
+        {
+          "type": "font",
+          "name": "FONT_DSEG_FCM_BOLD20",
+          "file": "fonts/DSEG14ClassicMini-Bold.ttf",
+          "characterRegex": "[0-9. +:~-]",
+          "size": 20
+        },
+        {
+          "type": "font",
+          "name": "FONT_DSEG_FCM_REG20",
+          "file": "fonts/DSEG14ClassicMini-Regular.ttf",
+          "characterRegex": "[0-9. +:~-]",
+          "size": 20
+        },
+        {
+          "type": "font",
+          "name": "FONT_DSEG_FM_TIME48",
+          "file": "fonts/DSEG14Modern-Bold.ttf",
+          "characterRegex": "[0-9:. ~-]",
+          "size": 48
+        },
+        {
+          "type": "font",
+          "name": "FONT_DSEG_FM_BOLD20",
+          "file": "fonts/DSEG14Modern-Bold.ttf",
+          "characterRegex": "[0-9. +:~-]",
+          "size": 20
+        },
+        {
+          "type": "font",
+          "name": "FONT_DSEG_FM_REG20",
+          "file": "fonts/DSEG14Modern-Regular.ttf",
+          "characterRegex": "[0-9. +:~-]",
+          "size": 20
+        },
+        {
+          "type": "font",
+          "name": "FONT_DSEG_FMM_TIME48",
+          "file": "fonts/DSEG14ModernMini-Bold.ttf",
+          "characterRegex": "[0-9:. ~-]",
+          "size": 48
+        },
+        {
+          "type": "font",
+          "name": "FONT_DSEG_FMM_BOLD20",
+          "file": "fonts/DSEG14ModernMini-Bold.ttf",
+          "characterRegex": "[0-9. +:~-]",
+          "size": 20
+        },
+        {
+          "type": "font",
+          "name": "FONT_DSEG_FMM_REG20",
+          "file": "fonts/DSEG14ModernMini-Regular.ttf",
+          "characterRegex": "[0-9. +:~-]",
+          "size": 20
+        },
         {
           "type": "font",
           "name": "FONT_DSEG_WEATHER20",
@@ -89,6 +222,8 @@
       "DATE_FORMAT",
       "TIME_FORMAT",
       "ICON_STYLE",
+      "GHOST_LEVEL",
+      "FONT_STYLE",
       "TEMP_UNIT",
       "COMPLICATION",
       "DIST_UNIT",

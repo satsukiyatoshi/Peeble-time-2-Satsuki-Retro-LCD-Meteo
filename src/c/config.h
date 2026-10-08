@@ -4,7 +4,7 @@
  *
  * La langue, le format de la date et l'unité de température se choisissent dans
  * la page de réglages de l'appli Pebble du téléphone (voir src/pkjs/clay-config.js).
- * Ici, CFG_LANGUAGE, CFG_DATE_MDY, CFG_TIME_12H, CFG_ICON_COLOR, CFG_COMPLICATION et CFG_DIST_MILES ne sont que les valeurs PAR DÉFAUT, utilisées
+ * Ici, CFG_LANGUAGE, CFG_DATE_MDY, CFG_TIME_12H, CFG_ICON_COLOR, CFG_GHOST_LEVEL, CFG_FONT_STYLE, CFG_COMPLICATION et CFG_DIST_MILES ne sont que les valeurs PAR DÉFAUT, utilisées
  * tant que rien n'a été choisi dans cette page. Tout le reste se règle dans ce
  * fichier avant `pebble build`. La fréquence de reprise après échec se règle dans
  * src/pkjs/config.js.
@@ -40,6 +40,13 @@
 // 1 = en couleurs (couleurs CFG_COLOR_ICON_* plus bas).
 #define CFG_ICON_COLOR         1
 
+// Style des chiffres (polices DSEG du dossier resources/fonts). Concerne l'heure,
+// la date et la complication :
+//   0 = 7 segments Classic ; 1 = 7 segments Classic Mini ; 2 = 7 segments Modern ;
+//   3 = 7 segments Modern Mini ; 4 = 14 segments Classic ; 5 = 14 segments Classic Mini ;
+//   6 = 14 segments Modern ; 7 = 14 segments Modern Mini.
+#define CFG_FONT_STYLE         0
+
 // Complication (case à droite de la date) :
 //   0 = nombre de pas ; 1 = fréquence cardiaque ; 2 = distance parcourue ;
 //   3 = prochain lever / coucher du soleil (▲ = lever, ▼ = coucher) ;
@@ -60,9 +67,11 @@
 #define CFG_ICON_TEST          0
 
 // ── Segments fantômes (segments LCD éteints) ──────────────────────────────
-#define CFG_GHOST_ENABLED      1     // 1 = affichés sur le cadran, 0 = masqués (interrupteur général)
-#define CFG_GHOST_COMP_ENABLED 1     // 1 = aussi dans la case de complication (nécessite CFG_GHOST_ENABLED)
-#define CFG_GHOST_FORECAST     0     // 1 = aussi derrière les icônes météo (2 lignes de prévisions ; nécessite CFG_GHOST_ENABLED)
+// Niveau par défaut (modifiable ensuite depuis la page de réglages du téléphone) :
+//   0 = normal ; 1 = léger (plus discret, couleurs CFG_COLOR_*_GHOST_LIGHT) ; 2 = désactivé.
+#define CFG_GHOST_LEVEL        0
+#define CFG_GHOST_COMP_ENABLED 1     // 1 = aussi dans la case de complication (sauf niveau 2)
+#define CFG_GHOST_FORECAST     0     // 1 = aussi derrière les icônes météo (2 lignes de prévisions ; sauf niveau 2)
 
 // ── Rétroéclairage (secousse) – NON UTILISÉ pour l'instant ────────────────
 // Ces deux réglages ne sont lus nulle part dans main.c (aucun abonnement à la
@@ -83,6 +92,8 @@
 #define CFG_COLOR_FG           0x000055  // chiffres, bordures, libellés du LCD
 #define CFG_COLOR_ACCENT       0xFF0000  // anneau rouge du boîtier
 #define CFG_COLOR_GHOST        0xAAAAFF  // segments éteints (plus clair = plus discret)
+#define CFG_COLOR_GHOST_LIGHT  0xAAFFFF  // segments éteints, niveau « léger » (la palette de la montre n'a que
+                                         // 4 niveaux par couleur : 0xAAFFFF est le plus clair visible sur fond blanc)
 #define CFG_COLOR_TIME2_BG     0xFFFFFF  // bande derrière date + complication (= fond : sans effet)
 #define CFG_COLOR_LABEL_TOP    0xFFFFFF  // libellés de gauche et de droite en haut (ex. CASIO / TIME 2)
 
@@ -98,4 +109,5 @@
 #define CFG_COLOR_FORECAST_LABEL 0x55AAFF  // « 14H », « 15H »…
 #define CFG_COLOR_FORECAST_ICON  0xFFFF00  // icône météo allumée
 #define CFG_COLOR_FORECAST_GHOST 0xAAAAFF  // segments d'icône éteints et séparateurs
+#define CFG_COLOR_FORECAST_GHOST_LIGHT 0x5555AA  // segments d'icône éteints, niveau « léger » (plus sombre = plus discret sur fond noir)
 #define CFG_COLOR_FORECAST_TEMP  0xFFFFFF  // température

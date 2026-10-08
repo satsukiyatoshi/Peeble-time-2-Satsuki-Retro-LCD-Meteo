@@ -13,6 +13,12 @@
 #ifndef CFG_TIME_12H
 #define CFG_TIME_12H          0
 #endif
+#ifndef CFG_FONT_STYLE
+#define CFG_FONT_STYLE        0
+#endif
+#ifndef CFG_GHOST_LEVEL
+#define CFG_GHOST_LEVEL       0
+#endif
 #ifndef CFG_ICON_COLOR
 #define CFG_ICON_COLOR        1
 #endif
@@ -30,7 +36,7 @@
 //   FORECAST_TS              heure (s Unix) du calcul des prévisions
 //   REQUEST_WEATHER          montre → téléphone : rafraîchir maintenant
 //   WEATHER_TREND            texte « VILLE : TENDANCE » (téléphone → montre)
-//   LANGUAGE, DATE_FORMAT, TIME_FORMAT, ICON_STYLE, COMPLICATION, DIST_UNIT
+//   LANGUAGE, DATE_FORMAT, TIME_FORMAT, ICON_STYLE, GHOST_LEVEL, FONT_STYLE, COMPLICATION, DIST_UNIT
 //                            réglages de la page Clay (téléphone → montre)
 //   SUNRISE_0..2, SUNSET_0..2  lever / coucher du soleil (s Unix) des 3 prochains jours
 //   TEMP_UNIT                réglage Clay utilisé seulement par le téléphone
@@ -65,6 +71,8 @@ static void init_forecast_keys(void) {
 #define PERSIST_COMP      3
 #define PERSIST_TIME12    5
 #define PERSIST_ICON_COL  6
+#define PERSIST_GHOST     7
+#define PERSIST_FONT_ST   8
 #define PERSIST_DIST_MI   4
 
 // ── Prévisions horaires : 2 lignes de 5 colonnes (H+1 … H+10) ────────────
@@ -119,6 +127,9 @@ static time_t   s_last_req_ts = 0;   // dernière demande de rafraîchissement
 static int  s_lang     = CFG_LANGUAGE;   // 0 = français, 1 = English
 static int  s_date_mdy = CFG_DATE_MDY;   // 0 = JJ-MM, 1 = MM-JJ
 static int  s_time12   = CFG_TIME_12H;    // 0 = 24 h, 1 = 12 h (indicateur A/P)
+static int  s_font_style   = CFG_FONT_STYLE;   // 0..3 = 7 segments (Classic, Classic Mini, Modern, Modern Mini), 4..7 = 14 segments (mêmes)
+static int  s_ghost    = CFG_GHOST_LEVEL; // segments éteints : 0 = normal, 1 = léger, 2 = désactivés
+#define GHOST_ON (s_ghost != 2)
 static int  s_icon_col = CFG_ICON_COLOR; // 0 = icônes monochromes, 1 = icônes en couleurs
 static int  s_comp     = CFG_COMPLICATION; // 0 pas, 1 FC, 2 distance, 3 soleil, 4 secondes
 static int  s_dist_mi  = CFG_DIST_MILES; // 0 = kilomètres, 1 = miles
@@ -133,11 +144,14 @@ static time_t s_sunset[3];           // couchers du soleil
 static int  s_batt_pct        = 100;
 
 // ── Custom fonts (loaded in window_load) ──────────────────────────────────
-static GFont s_font_d14_time   = NULL;  // DSEG7 Classic Bold 48 px : heure HH:MM
-static GFont s_font_d14_time38 = NULL;  // DSEG7 Classic Bold 38 px : chargée mais NON UTILISÉE (pas d'affichage des secondes)
-static GFont s_font_d7_date    = NULL;  // DSEG7 Classic Bold 20 px : date
-static GFont s_font_d7_comp    = NULL;  // DSEG7 Classic Bold 20 px : chiffres allumés de la complication
-static GFont s_font_comp_reg   = NULL;  // DSEG7 Classic Regular 20 px : chiffres éteints (fantômes) de la complication
+static GFont s_font_d14_time   = NULL;  // DSEG7 (style choisi) Bold 48 px : heure HH:MM
+static GFont s_font_d7_date    = NULL;  // DSEG7 20 px (gras ou normal) : date ET chiffres allumés de la complication
+static GFont s_font_d7_comp    = NULL;  // = s_font_d7_date (même police, même objet)
+static GFont s_font_comp_reg   = NULL;  // DSEG7 Regular 20 px : chiffres éteints (fantômes) de la complication
+                                        // (= s_font_d7_date quand la graisse « normal » est choisie)
+// Déclaration anticipée : appelée par inbox_received(), définie plus bas (avant window_load)
+static void load_dseg_fonts(void);
+
 static GFont s_font_weather    = NULL;  // DSEGWeather 20 px : seulement le glyphe '0' (segments éteints derrière les logos)
 
 // ── Semaine ISO 8601 (lundi = 1er jour, semaine 1 = celle du 1er jeudi) ──
@@ -172,7 +186,7 @@ static bool fc_slot_valid(int i) {
 }
 
 // Ghost segments behind real value – simulates unlit LCD segments.
-// Respects the CFG_GHOST_ENABLED config toggle.
+// Désactivé quand le niveau de ghost est « off » (GHOST_ON).
 // DSEG text must never use TrailingEllipsis: the fonts have no '…' glyph and
 // firmware 4.9 hangs (watchdog / frozen emulator) when it has to ellipsize.
 // Petite lettre « A », « P » (indicateur matin / après-midi du format 12 h),
@@ -233,12 +247,29 @@ static void draw_big_letter(GContext *ctx, int x, int y, char ch, GColor color) 
   }
 }
 
+// Caractère « tous les segments allumés » des polices 14 segments (DSEG14) : le
+// chiffre « 8 » n'y allume pas les segments diagonaux ni le milieu vertical. Si
+// l'affichage ne montre rien à la place des segments éteints, mettre '8' ici.
+#define GHOST14_CHAR '~'
+
+// Texte des segments éteints : les « 8 » sont remplacés par GHOST14_CHAR avec les
+// polices 14 segments (styles 4 à 7) ; sans effet avec les polices 7 segments.
+static void ghost_text(const char *in, char *out, size_t n) {
+  size_t i = 0;
+  for (; in[i] && i + 1 < n; i++) {
+    out[i] = (in[i] == '8' && s_font_style >= 4) ? GHOST14_CHAR : in[i];
+  }
+  out[i] = '\0';
+}
+
 static void lcd_text(GContext *ctx, const char *ghost, const char *real,
                      GFont font, GRect r, GColor gc, GColor rc,
                      GTextAlignment align) {
-  if (CFG_GHOST_ENABLED) {
+  if (GHOST_ON) {
     graphics_context_set_text_color(ctx, gc);
-    graphics_draw_text(ctx, ghost, font, r,
+    char gbuf[16];
+    ghost_text(ghost, gbuf, sizeof(gbuf));
+    graphics_draw_text(ctx, gbuf, font, r,
                        GTextOverflowModeFill, align, NULL);
   }
   graphics_context_set_text_color(ctx, rc);
@@ -888,7 +919,10 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
   // ── Colors ────────────────────────────────────────────────────────────
   GColor col_bg    = color_from_int(CFG_COLOR_BG);
   GColor col_fg    = color_from_int(CFG_COLOR_FG);
-  GColor col_ghost = color_from_int(CFG_COLOR_GHOST);
+  // Segments éteints : couleur du niveau choisi ; le cadre de la case de complication
+  // garde toujours la couleur normale (c'est une bordure, pas un segment)
+  GColor col_ghost_line = color_from_int(CFG_COLOR_GHOST);
+  GColor col_ghost = (s_ghost == 1) ? color_from_int(CFG_COLOR_GHOST_LIGHT) : col_ghost_line;
   GColor col_red   = color_from_int(CFG_COLOR_ACCENT);
 
   // ── Fonts ─────────────────────────────────────────────────────────────
@@ -1081,7 +1115,7 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
         else              snprintf(cstr, sizeof(cstr), "-----");
         break;
     }
-    graphics_context_set_stroke_color(ctx, PBL_IF_COLOR_ELSE(col_ghost, col_fg));
+    graphics_context_set_stroke_color(ctx, PBL_IF_COLOR_ELSE(col_ghost_line, col_fg));
     graphics_context_set_stroke_width(ctx, 2);
     graphics_draw_round_rect(ctx, GRect(comp_x, y_dr, comp_w, dr_h), PX(5));
     graphics_context_set_stroke_width(ctx, 1);
@@ -1103,9 +1137,11 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
       unit_x = right;                                              // bord droit de la lettre
       unit_gap = w5 - wg;                                          // place restante (à droite des chiffres)
     }
-    if (CFG_GHOST_ENABLED && CFG_GHOST_COMP_ENABLED) {
+    if (GHOST_ON && CFG_GHOST_COMP_ENABLED) {
       graphics_context_set_text_color(ctx, col_ghost);
-      graphics_draw_text(ctx, ghost, f_comp_g, all_r, GTextOverflowModeFill,
+      char gbuf[16];
+      ghost_text(ghost, gbuf, sizeof(gbuf));
+      graphics_draw_text(ctx, gbuf, f_comp_g, all_r, GTextOverflowModeFill,
                          align, NULL);
     }
     graphics_context_set_text_color(ctx, col_fg);
@@ -1162,7 +1198,7 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
       int y_p = y_time + PY(5);     // 2 px plus bas qu'avant
       int y_a = y_p + 13;
       int pm = (tnow->tm_hour >= 12);
-      if (CFG_GHOST_ENABLED) {
+      if (GHOST_ON) {
         draw_ind_letter(ctx, ix_ind, y_p, 'P', col_ghost);
         draw_ind_letter(ctx, ix_ind, y_a, 'A', col_ghost);
       }
@@ -1217,7 +1253,7 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
       int lit    = (s_batt_pct * n_seg + 50) / 100;
       if (lit > n_seg) lit = n_seg;
       for (int k = 0; k < n_seg; k++) {
-        if (k >= lit && !CFG_GHOST_ENABLED) continue;
+        if (k >= lit && !GHOST_ON) continue;
         graphics_context_set_fill_color(ctx, k < lit ? col_fg : col_ghost);
         graphics_fill_rect(ctx, GRect(in_x + k * step, in_y, seg_w, in_h),
                            0, GCornerNone);
@@ -1262,7 +1298,7 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
       if (i == today_idx) {
         graphics_context_set_fill_color(ctx, col_fg);
         graphics_fill_rect(ctx, GRect(dx, sq_y, sq, sq), 0, GCornerNone);
-      } else if (CFG_GHOST_ENABLED) {
+      } else if (GHOST_ON) {
         graphics_context_set_fill_color(ctx, col_ghost);
         graphics_fill_rect(ctx, GRect(dx, sq_y, sq, sq), 0, GCornerNone);
       } else {
@@ -1295,7 +1331,8 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
     bool fresh = fc_fresh();
     GColor c_lbl   = color_from_int(CFG_COLOR_FORECAST_LABEL);
     GColor c_icon  = color_from_int(CFG_COLOR_FORECAST_ICON);
-    GColor c_ghost = color_from_int(CFG_COLOR_FORECAST_GHOST);
+    GColor c_ghost = color_from_int(CFG_COLOR_FORECAST_GHOST);   // séparateurs
+    GColor c_ghost_seg = (s_ghost == 1) ? color_from_int(CFG_COLOR_FORECAST_GHOST_LIGHT) : c_ghost;   // segments d'icône éteints
     GColor c_temp  = color_from_int(CFG_COLOR_FORECAST_TEMP);
 
     for (int row = 0; row < FC_ROWS; row++) {
@@ -1332,8 +1369,8 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
 
         // icône (segments éteints, puis logo allumé)
         GRect ico_r = GRect(cx + PX(1), y_ico - FC_ICON_UP, PX(18), 26);   // zone du glyphe fantôme, remontée de FC_ICON_UP (la température ne bouge pas)
-        if (CFG_GHOST_ENABLED && CFG_GHOST_FORECAST) {
-          graphics_context_set_text_color(ctx, c_ghost);
+        if (GHOST_ON && CFG_GHOST_FORECAST) {
+          graphics_context_set_text_color(ctx, c_ghost_seg);
           graphics_draw_text(ctx, "0", f_icon, ico_r, GTextOverflowModeFill,
                              GTextAlignmentLeft, NULL);
         }
@@ -1456,6 +1493,21 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
     s_icon_col = (t->value->int32 == 1) ? 1 : 0;
     persist_write_int(PERSIST_ICON_COL, s_icon_col);
   }
+  if ((t = dict_find(iter, MESSAGE_KEY_GHOST_LEVEL))) {
+    s_ghost = (int)t->value->int32;
+    if (s_ghost < 0 || s_ghost > 2) s_ghost = 0;
+    persist_write_int(PERSIST_GHOST, s_ghost);
+  }
+  // Style des polices : rechargement s'il change
+  {
+    int old_st = s_font_style;
+    if ((t = dict_find(iter, MESSAGE_KEY_FONT_STYLE))) {
+      s_font_style = (int)t->value->int32;
+      if (s_font_style < 0 || s_font_style > 7) s_font_style = 0;
+      persist_write_int(PERSIST_FONT_ST, s_font_style);
+    }
+    if (old_st != s_font_style && s_canvas) load_dseg_fonts();
+  }
   if ((t = dict_find(iter, MESSAGE_KEY_COMPLICATION))) {
     s_comp = (int)t->value->int32;
     if (s_comp < 0 || s_comp > 4) s_comp = 0;
@@ -1495,13 +1547,54 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
   if (s_canvas) layer_mark_dirty(s_canvas);
 }
 
+// ── Polices DSEG : 8 styles × (heure 48 px gras, 20 px gras, 20 px normal) ──
+// Index = style : 0..3 = 7 segments (Classic, Classic Mini, Modern, Modern Mini),
+// 4..7 = 14 segments (Classic, Classic Mini, Modern, Modern Mini).
+// Seules les polices du style choisi sont chargées (économie de RAM).
+// ATTENTION : la taille de la police est lue dans le NOM de la ressource (package.json) :
+// il ne doit contenir qu'un seul nombre, à la fin (…_TIME48, …_BOLD20). Un nom comme
+// FONT_DSEG_14C_… serait lu comme une taille de 14 px. Les styles 14 segments portent
+// donc le code « F » (FC, FCM, FM, FMM) et non « 14 ».
+// Date et chiffres allumés de la complication : 20 px gras ; chiffres éteints
+// (fantômes) de la complication : 20 px normal.
+static const uint32_t RES_TIME48[8] = {
+  RESOURCE_ID_FONT_DSEG_C_TIME48, RESOURCE_ID_FONT_DSEG_CM_TIME48,
+  RESOURCE_ID_FONT_DSEG_M_TIME48, RESOURCE_ID_FONT_DSEG_MM_TIME48,
+  RESOURCE_ID_FONT_DSEG_FC_TIME48, RESOURCE_ID_FONT_DSEG_FCM_TIME48,
+  RESOURCE_ID_FONT_DSEG_FM_TIME48, RESOURCE_ID_FONT_DSEG_FMM_TIME48
+};
+static const uint32_t RES_F20_BOLD[8] = {
+  RESOURCE_ID_FONT_DSEG_C_BOLD20, RESOURCE_ID_FONT_DSEG_CM_BOLD20,
+  RESOURCE_ID_FONT_DSEG_M_BOLD20, RESOURCE_ID_FONT_DSEG_MM_BOLD20,
+  RESOURCE_ID_FONT_DSEG_FC_BOLD20, RESOURCE_ID_FONT_DSEG_FCM_BOLD20,
+  RESOURCE_ID_FONT_DSEG_FM_BOLD20, RESOURCE_ID_FONT_DSEG_FMM_BOLD20
+};
+static const uint32_t RES_F20_REG[8] = {
+  RESOURCE_ID_FONT_DSEG_C_REG20, RESOURCE_ID_FONT_DSEG_CM_REG20,
+  RESOURCE_ID_FONT_DSEG_M_REG20, RESOURCE_ID_FONT_DSEG_MM_REG20,
+  RESOURCE_ID_FONT_DSEG_FC_REG20, RESOURCE_ID_FONT_DSEG_FCM_REG20,
+  RESOURCE_ID_FONT_DSEG_FM_REG20, RESOURCE_ID_FONT_DSEG_FMM_REG20
+};
+
+static void unload_dseg_fonts(void) {
+  if (s_font_d14_time) { fonts_unload_custom_font(s_font_d14_time); s_font_d14_time = NULL; }
+  if (s_font_comp_reg) { fonts_unload_custom_font(s_font_comp_reg); s_font_comp_reg = NULL; }
+  if (s_font_d7_date)  { fonts_unload_custom_font(s_font_d7_date);  s_font_d7_date  = NULL; }
+  s_font_d7_comp = NULL;   // simple alias de s_font_d7_date
+}
+
+static void load_dseg_fonts(void) {
+  unload_dseg_fonts();
+  int st = (s_font_style >= 0 && s_font_style <= 7) ? s_font_style : 0;
+  s_font_d14_time = fonts_load_custom_font(resource_get_handle(RES_TIME48[st]));
+  s_font_d7_date  = fonts_load_custom_font(resource_get_handle(RES_F20_BOLD[st]));
+  s_font_d7_comp  = s_font_d7_date;
+  s_font_comp_reg = fonts_load_custom_font(resource_get_handle(RES_F20_REG[st]));
+}
+
 // ── Window ────────────────────────────────────────────────────────────────
 static void window_load(Window *w) {
-  s_font_d14_time = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_DSEG_TIME48));
-  s_font_d14_time38 = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_DSEG_TIME38));
-  s_font_d7_date  = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_DSEG_DATE20));
-  s_font_d7_comp = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_DSEG_COMP20));
-  s_font_comp_reg = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_DSEG_COMP20_REG));
+  load_dseg_fonts();
   s_font_weather  = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_DSEG_WEATHER20));
 
 #if CFG_ICON_TEST
@@ -1531,11 +1624,7 @@ static void window_load(Window *w) {
 static void window_unload(Window *w) {
   layer_destroy(s_canvas);
   s_canvas = NULL;
-  if (s_font_d14_time) { fonts_unload_custom_font(s_font_d14_time); s_font_d14_time = NULL; }
-  if (s_font_d14_time38) { fonts_unload_custom_font(s_font_d14_time38); s_font_d14_time38 = NULL; }
-  if (s_font_d7_date)  { fonts_unload_custom_font(s_font_d7_date);  s_font_d7_date  = NULL; }
-  if (s_font_d7_comp)  { fonts_unload_custom_font(s_font_d7_comp);  s_font_d7_comp  = NULL; }
-  if (s_font_comp_reg) { fonts_unload_custom_font(s_font_comp_reg); s_font_comp_reg = NULL; }
+  unload_dseg_fonts();
   if (s_font_weather)  { fonts_unload_custom_font(s_font_weather);  s_font_weather  = NULL; }
 }
 
@@ -1546,6 +1635,10 @@ static void load_settings(void) {
   if (persist_exists(PERSIST_DATE_MDY)) s_date_mdy = (persist_read_int(PERSIST_DATE_MDY) == 1) ? 1 : 0;
   if (persist_exists(PERSIST_TIME12))   s_time12   = (persist_read_int(PERSIST_TIME12) == 1) ? 1 : 0;
   if (persist_exists(PERSIST_ICON_COL)) s_icon_col = (persist_read_int(PERSIST_ICON_COL) == 1) ? 1 : 0;
+  if (persist_exists(PERSIST_GHOST))    s_ghost    = persist_read_int(PERSIST_GHOST);
+  if (s_ghost < 0 || s_ghost > 2) s_ghost = CFG_GHOST_LEVEL;
+  if (persist_exists(PERSIST_FONT_ST))  s_font_style   = persist_read_int(PERSIST_FONT_ST);
+  if (s_font_style < 0 || s_font_style > 7) s_font_style = CFG_FONT_STYLE;
   if (persist_exists(PERSIST_COMP))     s_comp     = persist_read_int(PERSIST_COMP);
   if (persist_exists(PERSIST_DIST_MI))  s_dist_mi  = (persist_read_int(PERSIST_DIST_MI) == 1) ? 1 : 0;
   if (s_comp < 0 || s_comp > 4) s_comp = CFG_COMPLICATION;

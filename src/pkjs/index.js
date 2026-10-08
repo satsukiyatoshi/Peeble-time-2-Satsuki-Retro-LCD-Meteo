@@ -37,6 +37,8 @@ var K = {
   DATE_FORMAT: 'DATE_FORMAT',          // téléphone → montre : 0 = JJ-MM, 1 = MM-JJ
   TIME_FORMAT: 'TIME_FORMAT',          // téléphone → montre : 0 = 24 h, 1 = 12 h
   ICON_STYLE: 'ICON_STYLE',            // téléphone → montre : 0 = monochrome, 1 = couleurs
+  GHOST_LEVEL: 'GHOST_LEVEL',          // téléphone → montre : 0 = défaut, 1 = léger, 2 = désactivé
+  FONT_STYLE: 'FONT_STYLE',            // téléphone → montre : 0..3 = 7 segments (Classic, Classic Mini, Modern, Modern Mini), 4..7 = 14 segments (mêmes)
   COMPLICATION: 'COMPLICATION',        // téléphone → montre : 0 pas, 1 FC, 2 distance, 3 soleil, 4 secondes
   DIST_UNIT: 'DIST_UNIT'               // téléphone → montre : 0 = kilomètres, 1 = miles
 };
@@ -52,10 +54,13 @@ function readSettings() {
   var s = {};
   try { s = JSON.parse(localStorage.getItem('clay-settings') || '{}') || {}; } catch (e) { s = {}; }
   return {
-    saved: (s.LANGUAGE !== undefined || s.DATE_FORMAT !== undefined || s.TIME_FORMAT !== undefined || s.ICON_STYLE !== undefined || s.TEMP_UNIT !== undefined ||
+    saved: (s.LANGUAGE !== undefined || s.DATE_FORMAT !== undefined || s.TIME_FORMAT !== undefined || s.ICON_STYLE !== undefined || s.GHOST_LEVEL !== undefined || s.FONT_STYLE !== undefined ||
+            s.TEMP_UNIT !== undefined ||
             s.COMPLICATION !== undefined || s.DIST_UNIT !== undefined),
     // icônes en couleurs par défaut (aussi si ce réglage n'a jamais été enregistré)
     iconColor: (s.ICON_STYLE === undefined || parseInt(s.ICON_STYLE, 10) === 1) ? 1 : 0,
+    ghost: Math.max(0, Math.min(2, parseInt(s.GHOST_LEVEL, 10) || 0)),
+    fontStyle: Math.max(0, Math.min(7, parseInt(s.FONT_STYLE, 10) || 0)),
     time12: parseInt(s.TIME_FORMAT, 10) === 1 ? 1 : 0,
     comp: Math.max(0, Math.min(4, parseInt(s.COMPLICATION, 10) || 0)),
     dist: parseInt(s.DIST_UNIT, 10) === 1 ? 1 : 0,
@@ -74,6 +79,8 @@ function addSettings(msg) {
     msg[K.DATE_FORMAT] = s.date;
     msg[K.TIME_FORMAT] = s.time12;
     msg[K.ICON_STYLE] = s.iconColor;
+    msg[K.GHOST_LEVEL] = s.ghost;
+    msg[K.FONT_STYLE] = s.fontStyle;
     msg[K.COMPLICATION] = s.comp;
     msg[K.DIST_UNIT] = s.dist;
   }

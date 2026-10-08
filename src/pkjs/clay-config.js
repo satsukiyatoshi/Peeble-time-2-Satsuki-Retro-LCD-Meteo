@@ -7,7 +7,7 @@
  * Les « defaultValue » ci-dessous doivent rester en accord avec les valeurs par
  * défaut de la montre (CFG_* dans src/c/config.h) et de index.js :
  *   langue "0" = français, date "0" = JJ-MM, heure "0" = 24 h,
- *   icônes "1" = couleurs, complication "0" = nombre de pas,
+ *   icônes "1" = couleurs, ghost "0" = défaut, chiffres "0" = 7 segments Classic, complication "0" = nombre de pas,
  *   unité de distance "0" = kilomètres, température "0" = °C.
  */
 module.exports = [
@@ -54,6 +54,33 @@ module.exports = [
         "options": [
           { "label": "Monochrome (jaune / yellow)", "value": "0" },
           { "label": "Couleurs / Colors",           "value": "1" }
+        ]
+      },
+      {
+        "type": "select",
+        "messageKey": "GHOST_LEVEL",
+        "label": "Segments éteints (ghost) / Unlit segments (ghost)",
+        "defaultValue": "0",
+        "options": [
+          { "label": "Défaut / Default",    "value": "0" },
+          { "label": "Léger / Light",       "value": "1" },
+          { "label": "Désactivé / Off",     "value": "2" }
+        ]
+      },
+      {
+        "type": "select",
+        "messageKey": "FONT_STYLE",
+        "label": "Style des chiffres / Digit style",
+        "defaultValue": "0",
+        "options": [
+          { "label": "7 segments : Classic (défaut / default)", "value": "0" },
+          { "label": "7 segments : Classic Mini",               "value": "1" },
+          { "label": "7 segments : Modern",                     "value": "2" },
+          { "label": "7 segments : Modern Mini",                "value": "3" },
+          { "label": "14 segments : Classic",                   "value": "4" },
+          { "label": "14 segments : Classic Mini",              "value": "5" },
+          { "label": "14 segments : Modern",                    "value": "6" },
+          { "label": "14 segments : Modern Mini",               "value": "7" }
         ]
       },
       {
