@@ -8,6 +8,8 @@ Satsuki Retro LCD Meteo combines a highly readable digital clock with weather in
 
 ![SatsukiRetroLCD Screenshot](resources/screenshots/pebble_screenshot_2026-10-08_12-15-47.png)
 
+Get it here : https://apps.repebble.com/0deee14e32e54453a975067f
+
 ## Inspiration and project origins
 
 The design of Satsuki Retro LCD Meteo is notably inspired by **Quartz by Dalpek**, a retro LCD watchface for the Pebble Time 2: https://apps.repebble.com/quartz-by-dalpek_31cfe29ecd814df4b5ca8bb4
@@ -96,6 +98,8 @@ Satsuki Retro LCD Meteo combine une horloge numérique très lisible, des inform
 ![SatsukiRetroLCD Screenshot](resources/screenshots/pebble_screenshot_2026-10-08_12-15-47.png)
 
 ![SatsukiRetroLCD Screenshot](resources/screenshots/pebble_screenshot_2026-10-08_12-20-31.png)
+
+Disponible ici : https://apps.repebble.com/0deee14e32e54453a975067f
 
 ## Inspiration et origine du projet
 
