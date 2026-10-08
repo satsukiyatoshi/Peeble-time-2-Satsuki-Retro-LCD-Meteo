@@ -1,0 +1,103 @@
+{
+  "name": "satsukiretrolcdmeteo",
+  "author": "Satsuki",
+  "version": "1.0.5",
+  "keywords": [
+    "pebble-app"
+  ],
+  "private": true,
+  "dependencies": {
+    "pebble-clay": "^1.0.4"
+  },
+  "pebble": {
+    "displayName": "Satsuki Retro LCD Meteo",
+    "uuid": "6a8bead9-d7d1-4183-bbb6-e351208ac777",
+    "sdkVersion": "3",
+    "enableMultiJS": true,
+    "targetPlatforms": [
+      "emery"
+    ],
+    "watchapp": {
+      "watchface": true
+    },
+    "capabilities": [
+      "health",
+      "location",
+      "configurable"
+    ],
+    "resources": {
+      "media": [
+        {
+          "type": "font",
+          "name": "FONT_DSEG_TIME48",
+          "file": "fonts/DSEG7Classic-Bold.ttf",
+          "characterRegex": "[0-9:. -]",
+          "size": 48
+        },
+        {
+          "type": "font",
+          "name": "FONT_DSEG_TIME38",
+          "file": "fonts/DSEG7Classic-Bold.ttf",
+          "characterRegex": "[0-9:]",
+          "size": 38
+        },
+		{
+		  "type": "font",
+		  "name": "FONT_DSEG_DATE20",
+		  "file": "fonts/DSEG7Classic-Bold.ttf",
+		  "characterRegex": "[0-9. -]",
+		  "size": 20
+		},
+		{
+		  "type": "font",
+		  "name": "FONT_DSEG_COMP20",
+		  "file": "fonts/DSEG7Classic-Bold.ttf",
+		  "characterRegex": "[0-9. +:-]",
+		  "size": 20
+		},
+		{
+		  "type": "font",
+		  "name": "FONT_DSEG_COMP20_REG",
+		  "file": "fonts/DSEG7Classic-Regular.ttf",
+		  "characterRegex": "[0-9. +:-]",
+		  "size": 20
+		},
+        {
+          "type": "font",
+          "name": "FONT_DSEG_WEATHER20",
+          "file": "fonts/DSEGWeather.ttf",
+          "characterRegex": "[0-9]",
+          "size": 20
+        }
+      ]
+    },
+    "messageKeys": [
+      "FORECAST_0",
+      "FORECAST_1",
+      "FORECAST_2",
+      "FORECAST_3",
+      "FORECAST_4",
+      "FORECAST_5",
+      "FORECAST_6",
+      "FORECAST_7",
+      "FORECAST_8",
+      "FORECAST_9",
+      "FORECAST_TS",
+      "REQUEST_WEATHER",
+      "WEATHER_TREND",
+      "LANGUAGE",
+      "DATE_FORMAT",
+      "TIME_FORMAT",
+      "ICON_STYLE",
+      "TEMP_UNIT",
+      "COMPLICATION",
+      "DIST_UNIT",
+      "SUNRISE_0",
+      "SUNRISE_1",
+      "SUNRISE_2",
+      "SUNSET_0",
+      "SUNSET_1",
+      "SUNSET_2"
+    ]
+  }
+}
