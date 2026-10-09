@@ -1,7 +1,7 @@
 {
   "name": "satsukiretrolcdmeteo",
   "author": "Satsuki",
-  "version": "1.1.0",
+  "version": "1.1.2",
   "keywords": [
     "pebble-app"
   ],
@@ -232,7 +232,8 @@
       "SUNRISE_2",
       "SUNSET_0",
       "SUNSET_1",
-      "SUNSET_2"
+      "SUNSET_2",
+	  "RED_RING_LATERAL"
     ]
   }
 }

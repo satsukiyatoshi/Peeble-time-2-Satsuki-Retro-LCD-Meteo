@@ -67,6 +67,16 @@ module.exports = [
           { "label": "Désactivé / Off",     "value": "2" }
         ]
       },
+	  {
+        "type": "select",
+        "messageKey": "RED_RING_LATERAL",
+        "label": "Bandes rouges latérales / Red side stripes",
+        "defaultValue": "0",
+        "options": [
+          { "label": "Afficher / Show", "value": "1" },
+          { "label": "Cacher / Hide", "value": "0" }
+        ]
+      },
       {
         "type": "select",
         "messageKey": "FONT_STYLE",

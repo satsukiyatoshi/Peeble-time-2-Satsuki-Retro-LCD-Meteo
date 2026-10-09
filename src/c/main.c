@@ -28,6 +28,9 @@
 #ifndef CFG_DIST_MILES
 #define CFG_DIST_MILES        0
 #endif
+#ifndef CFG_RED_RING_LATERAL
+#define CFG_RED_RING_LATERAL  0
+#endif
 
 // ── Clés AppMessage (téléphone ↔ montre) ─────────────────────────────────
 // Les noms sont déclarés dans messageKeys de package.json ; le SDK en fait les
@@ -36,7 +39,7 @@
 //   FORECAST_TS              heure (s Unix) du calcul des prévisions
 //   REQUEST_WEATHER          montre → téléphone : rafraîchir maintenant
 //   WEATHER_TREND            texte « VILLE : TENDANCE » (téléphone → montre)
-//   LANGUAGE, DATE_FORMAT, TIME_FORMAT, ICON_STYLE, GHOST_LEVEL, FONT_STYLE, COMPLICATION, DIST_UNIT
+//   LANGUAGE, DATE_FORMAT, TIME_FORMAT, ICON_STYLE, GHOST_LEVEL, FONT_STYLE, COMPLICATION, DIST_UNIT, RED_RING_LATERAL
 //                            réglages de la page Clay (téléphone → montre)
 //   SUNRISE_0..2, SUNSET_0..2  lever / coucher du soleil (s Unix) des 3 prochains jours
 //   TEMP_UNIT                réglage Clay utilisé seulement par le téléphone
@@ -74,6 +77,7 @@ static void init_forecast_keys(void) {
 #define PERSIST_GHOST     7
 #define PERSIST_FONT_ST   8
 #define PERSIST_DIST_MI   4
+#define PERSIST_RED_RING  9
 
 // ── Prévisions horaires : 2 lignes de 5 colonnes (H+1 … H+10) ────────────
 // Entier reçu : bits 0-6 code météo WMO (127 = inconnu), bit 7 jour,
@@ -91,8 +95,8 @@ static void init_forecast_keys(void) {
 // lignes, qui font toutes deux ≈ 32 px de haut sur emery), réglables ici.
 #define FC_LBL_DY     (-1)         // libellé « 14H » par rapport au haut de la cellule
 #define FC_ICO_DY     10           // haut de l'icône par rapport au haut de la cellule
-#define FC_SEP_Y0     1            // séparateurs verticaux : début / fin dans la cellule
-#define FC_SEP_Y1     27
+#define FC_SEP_Y0     5            // séparateurs verticaux : début / fin dans la cellule
+#define FC_SEP_Y1     26
 #define FC_ICON_UP    3            // segments éteints (glyphe '0') remontés de 3 px ; ne concerne pas les logos 16×16
 #define FC_ICON16_DY  4            // logos 16×16 : décalage vertical par rapport à y_ico (FC_ICON_UP n'est pas appliqué)
 
@@ -133,6 +137,7 @@ static int  s_ghost    = CFG_GHOST_LEVEL; // segments éteints : 0 = normal, 1 =
 static int  s_icon_col = CFG_ICON_COLOR; // 0 = icônes monochromes, 1 = icônes en couleurs
 static int  s_comp     = CFG_COMPLICATION; // 0 pas, 1 FC, 2 distance, 3 soleil, 4 secondes
 static int  s_dist_mi  = CFG_DIST_MILES; // 0 = kilomètres, 1 = miles
+static int  r_r_sides  = CFG_RED_RING_LATERAL; // 0 masqué, 1 affiché
 
 static char s_weather_trend[64] = "METEO"; // « VILLE : TENDANCE » reçu du téléphone
 
@@ -940,27 +945,27 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
   // ── Y anchors ─────────────────────────────────────────────────────────
   int y_rs1     = PY(16);    // haut de l'anneau rouge
   int y_rsb     = PY(13);    // sert au calcul de la hauteur de l'anneau (le prolonge de 3 px sous y_ban)
-  int y_btn     = PY(19);    // haut de la ligne de prévisions du haut
+  int y_btn     = PY(21);    // haut de la ligne de prévisions du haut
   // La ligne de prévisions du haut occupe y_btn..y_lcd (≈ 33 px), celle du bas
   // y_fc..y_rs2 (≈ 32 px) : hauteurs quasi identiques.
-  int y_lcd     = PY(52);    // LCD outer frame
-  int y_in      = PY(55);    // white panel
-  int y_dr      = PY(57);    // date / comp row
-  int dr_h      = PY(30);    // 2 px border + 2 px air around the 21 px ink
-  int y_time    = PY(86);    // time row
-  int y_info    = PY(144);   // info strip separator
-  int y_in_end  = PY(156);   // panel end (bandeau d'info plus bas = bande de texte plus haute)
-  int y_lcd_end = PY(173);   // fin du cadre (la bande des jours est entre y_in_end et y_lcd_end)
-  int y_fc      = PY(175);   // 2e ligne de prévisions
-  int y_rs2     = PY(207);   // bas du fond noir des prévisions / haut de la bande rouge inférieure
-  int y_ban     = PY(207);   // haut de la zone ville + tendance (texte jaune)
+  int y_lcd     = PY(54);    // LCD outer frame
+  int y_in      = PY(57);    // white panel
+  int y_dr      = PY(59);    // date / comp row
+  int dr_h      = PY(32);    // 2 px border + 2 px air around the 21 px ink
+  int y_time    = PY(88);    // time row
+  int y_info    = PY(146);   // info strip separator
+  int y_in_end  = PY(158);   // panel end (bandeau d'info plus bas = bande de texte plus haute)
+  int y_lcd_end = PY(175);   // fin du cadre (la bande des jours est entre y_in_end et y_lcd_end)
+  int y_fc      = PY(176);   // 2e ligne de prévisions
+  int y_rs2     = PY(208);   // bas du fond noir des prévisions / haut de la bande rouge inférieure
+  int y_ban     = PY(210);   // haut de la zone ville + tendance (texte jaune)
 
   // ── X anchors ─────────────────────────────────────────────────────────
-  int ring_s = PX(3);                 // thin red side rails
-  int lx = PX(6),  lw = W - PX(12);   // LCD outer frame
-  int ix = PX(10), iw = W - PX(20);   // white panel
-  int x_l = ix + PX(4);               // content left
-  int x_r = ix + iw - PX(4);          // content right
+  int ring_s = (r_r_sides == 0) ? PX(0) : PX(3);    // thin red side rails
+  int lx = PX(6),  lw = W - PX(12);       			// LCD outer frame
+  int ix = PX(10), iw = W - PX(20);       			// white panel
+  int x_l = ix + PX(4);                   			// content left
+  int x_r = ix + iw - PX(4);              			// content right
   int comp_w = PX(86);
   int comp_x = x_r - comp_w + PX(1);
   int date_w = comp_x - x_l;
@@ -1115,10 +1120,10 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
         else              snprintf(cstr, sizeof(cstr), "-----");
         break;
     }
-    graphics_context_set_stroke_color(ctx, PBL_IF_COLOR_ELSE(col_ghost_line, col_fg));
-    graphics_context_set_stroke_width(ctx, 2);
-    graphics_draw_round_rect(ctx, GRect(comp_x, y_dr, comp_w, dr_h), PX(5));
-    graphics_context_set_stroke_width(ctx, 1);
+	graphics_context_set_stroke_color(ctx, GColorBlack);
+	graphics_context_set_stroke_width(ctx, 1);
+	graphics_draw_round_rect(ctx, GRect(comp_x + 1, y_dr + 2, comp_w - 2, dr_h - 4), PX(5));
+	graphics_context_set_stroke_width(ctx, 1);
 
     int ty = y_dr + (dr_h - 20) / 2 + PY(1);
     GRect all_r = GRect(comp_x + PX(3), ty, comp_w - PX(6), 24);
@@ -1518,6 +1523,11 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
     s_dist_mi = (t->value->int32 == 1) ? 1 : 0;
     persist_write_int(PERSIST_DIST_MI, s_dist_mi);
   }
+  if ((t = dict_find(iter, MESSAGE_KEY_RED_RING_LATERAL))) {
+    r_r_sides = (t->value->int32 == 1) ? 1 : 0;
+    persist_write_int(PERSIST_RED_RING, r_r_sides);
+    if (s_canvas) layer_mark_dirty(s_canvas);
+  }
   // Lever / coucher du soleil (0 = inconnu)
   for (int i = 0; i < 3; i++) {
     if ((t = dict_find(iter, SUNRISE_KEYS[i]))) s_sunrise[i] = (time_t)t->value->int32;
@@ -1642,6 +1652,7 @@ static void load_settings(void) {
   if (persist_exists(PERSIST_COMP))     s_comp     = persist_read_int(PERSIST_COMP);
   if (persist_exists(PERSIST_DIST_MI))  s_dist_mi  = (persist_read_int(PERSIST_DIST_MI) == 1) ? 1 : 0;
   if (s_comp < 0 || s_comp > 4) s_comp = CFG_COMPLICATION;
+  if (persist_exists(PERSIST_RED_RING)) r_r_sides = (persist_read_int(PERSIST_RED_RING) == 1) ? 1 : 0;
 }
 
 static void init(void) {

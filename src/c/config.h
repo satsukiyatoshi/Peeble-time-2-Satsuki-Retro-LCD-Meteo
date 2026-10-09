@@ -87,10 +87,14 @@
 #define CFG_LABEL_TOP_RIGHT    "TIME 2"
 #define CFG_LABEL_CENTER       "SATSUKI" // au centre de la ligne du haut
 
+// ── Affichage des parties latérales de l'anneaux rouge.
+#define CFG_RED_RING_LATERAL   0  // 1 affichées, 0 masquées
+
 // ── Couleurs ──────────────────────────────────────────────────────────────
 #define CFG_COLOR_BG           0xFFFFFF  // fond de l'écran LCD
 #define CFG_COLOR_FG           0x000055  // chiffres, bordures, libellés du LCD
 #define CFG_COLOR_ACCENT       0xFF0000  // anneau rouge du boîtier
+
 #define CFG_COLOR_GHOST        0xAAAAFF  // segments éteints (plus clair = plus discret)
 #define CFG_COLOR_GHOST_LIGHT  0xAAFFFF  // segments éteints, niveau « léger » (la palette de la montre n'a que
                                          // 4 niveaux par couleur : 0xAAFFFF est le plus clair visible sur fond blanc)
