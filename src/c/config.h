@@ -60,6 +60,22 @@
 // L'unité de température (°C par défaut, °F possible) ne figure pas ici : elle
 // se choisit uniquement dans la page de réglages du téléphone.
 
+// ── Complications des deux rangées de prévisions (au-dessus / sous l'heure) ──
+// VALEURS PAR DÉFAUT (la page de réglages du téléphone l'emporte) :
+//   0 = météo horaire (5 colonnes) ; 1 = fréquence cardiaque + distance ;
+//   2 = calories + pas ; 3 = lever + coucher du soleil (prochains) ;
+//   4 = tendance météo sur 3 jours (jour + date, icône de la journée, min / max) ; les deux rangées
+//       en tendance se suivent : 6 jours (J à J+2, puis J+3 à J+5) ;
+//   5 = FC + calories ; 6 = FC + pas ; 7 = distance + calories ; 8 = pas + distance.
+// Si les DEUX rangées sont en météo horaire, elles se suivent (H+1…H+5, puis H+6…H+10) ;
+// si une seule l'est, elle affiche H+1…H+5.
+// La période météo (1, 2, 3 ou 4 h entre deux colonnes) ne se règle que dans la page
+// de réglages du téléphone (1 h par défaut) : voir src/pkjs/clay-config.js.
+#define CFG_COMP_TOP           0
+#define CFG_COMP_BOTTOM        0
+// Calories affichées : 0 = actives seulement ; 1 = actives + au repos.
+#define CFG_CALORIES_TOTAL     0
+
 // ── Mode test des logos météo (émulateur) ─────────────────────────────────
 // 0 = normal (vraies prévisions) ; 1 = affiche 10 logos de test (les 10 colonnes) ;
 // 2 = décalé d'un cran pour voir le 11e (goutte + éclair), etc. Remettre 0 avant
@@ -114,4 +130,11 @@
 #define CFG_COLOR_FORECAST_ICON  0xFFFF00  // icône météo allumée
 #define CFG_COLOR_FORECAST_GHOST 0xAAAAFF  // segments d'icône éteints et séparateurs
 #define CFG_COLOR_FORECAST_GHOST_LIGHT 0x5555AA  // segments d'icône éteints, niveau « léger » (plus sombre = plus discret sur fond noir)
-#define CFG_COLOR_FORECAST_TEMP  0xFFFFFF  // température
+#define CFG_COLOR_FORECAST_TEMP  0xFFFFFF  // température (et valeurs des complications)
+
+// Icônes des complications des rangées de prévisions (mode « couleurs » ; en monochrome :
+// CFG_COLOR_FORECAST_ICON). Le soleil (lever / coucher) utilise CFG_COLOR_ICON_SUN.
+#define CFG_COLOR_ICON_HEART   0xFF0000  // cœur (fréquence cardiaque)
+#define CFG_COLOR_ICON_FLAME   0xFF5500  // flamme (calories)
+#define CFG_COLOR_ICON_STEPS   0x55FF55  // empreintes (pas)
+#define CFG_COLOR_ICON_PIN     0xFFAA00  // repère (distance)

@@ -26,7 +26,7 @@ Many thanks to the authors of the projects that provided inspiration and a techn
 • Multiple segments font available (7 and 14 segments)<br>
 • DD-MM or MM-DD date format<br>
 • Day of the week in French or English<br>
-• Hourly weather forecast for the next 10 hours<br>
+• Hourly weather forecast for the next 5/10 periods (period of 1h, 2h, 3h, 4h) or 3/6 days forecast<br>
 • Retro weather icons in monochrome or color<br>
 • Temperature in °C or °F<br>
 • Current city name and daily weather trend<br>
@@ -36,12 +36,20 @@ Many thanks to the authors of the projects that provided inspiration and a techn
 • French and English interface<br>
 • Color palette designed for the Pebble Time 2 color display<br>
 
-• Configurable complication:
+• Configurable complication (center):
 * steps
 * heart rate
 * distance walked
 * next sunrise or sunset
 * seconds
+
+• Configurable complication (top/bottom):
+* steps
+* heart rate
+* distance walked
+* next sunrise or sunset
+* calories
+* weather (periods 1h,2h,3h,4h or 3 days)
 
 
 ## Weather
@@ -62,7 +70,7 @@ The main options are available from the watchface settings page in the Pebble ap
 • date format<br>
 • 12-hour / 24-hour time<br>
 • weather icon style<br>
-• complication<br>
+• complications (top, center, bottom)<br>
 • distance unit<br>
 • temperature unit<br>
 
@@ -122,7 +130,7 @@ Un grand merci aux auteurs des projets qui ont servi d'inspiration et de base te
 • Intensité du ghosting<br>
 • Date au format JJ-MM ou MM-JJ<br>
 • Jour de la semaine en français ou en anglais<br>
-• Prévisions météo heure par heure pour les 10 prochaines heures<br>
+• Prévisions météo heure par heure pour les 5/10 prochaines périodes par pas de 1h, 2h, 3h, 4h ou prévsionnel sur 3/6 jours.<br>
 • Icônes météo rétro en monochrome ou en couleurs<br>
 • Température en °C ou °F<br>
 • Nom de la ville et tendance météo du jour<br>
@@ -132,12 +140,20 @@ Un grand merci aux auteurs des projets qui ont servi d'inspiration et de base te
 • Interface française et anglaise<br>
 • Couleurs et éléments graphiques pensés pour l'écran couleur de la Pebble Time 2
 
-• Complication configurable :
+• Complication configurable (centre) :
 * nombre de pas
 * fréquence cardiaque
 * distance parcourue
 * prochain lever ou coucher du soleil
 * secondes
+
+• Complication configurable (haut/bas) :
+* nombre de pas
+* fréquence cardiaque
+* distance parcourue
+* prochain lever ou coucher du soleil
+* calories
+* météo
 
 
 ## Météo

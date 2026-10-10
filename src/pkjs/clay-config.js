@@ -8,7 +8,8 @@
  * défaut de la montre (CFG_* dans src/c/config.h) et de index.js :
  *   langue "0" = français, date "0" = JJ-MM, heure "0" = 24 h,
  *   icônes "1" = couleurs, ghost "0" = défaut, chiffres "0" = 7 segments Classic, complication "0" = nombre de pas,
- *   unité de distance "0" = kilomètres, température "0" = °C.
+ *   unité de distance "0" = kilomètres, température "0" = °C,
+ *   période météo "1" = 1 h, complications du haut et du bas "0" = météo horaire.
  */
 module.exports = [
   { "type": "heading", "defaultValue": "Satsuki Retro LCD Meteo" },
@@ -124,6 +125,52 @@ module.exports = [
         "options": [
           { "label": "°C (Celsius)",    "value": "0" },
           { "label": "°F (Fahrenheit)", "value": "1" }
+        ]
+      },
+      {
+        "type": "select",
+        "messageKey": "WEATHER_PERIOD",
+        "label": "Période météo (météo horaire) / Weather period (hourly weather)",
+        "defaultValue": "1",
+        "options": [
+          { "label": "1 h (défaut / default)", "value": "1" },
+          { "label": "2 h", "value": "2" },
+          { "label": "3 h", "value": "3" },
+          { "label": "4 h", "value": "4" }
+        ]
+      },
+      {
+        "type": "select",
+        "messageKey": "COMP_TOP",
+        "label": "Complication au-dessus de l'heure / Complication above the time",
+        "defaultValue": "0",
+        "options": [
+          { "label": "Météo horaire / Hourly weather",                         "value": "0" },
+          { "label": "Tendance météo 3 jours (6 si les 2) / 3-day trend (6 if both)", "value": "4" },
+          { "label": "Lever + coucher du soleil / Sunrise + sunset",           "value": "3" },
+          { "label": "Rythme cardiaque + distance / Heart rate + distance",    "value": "1" },
+          { "label": "Rythme cardiaque + calories / Heart rate + calories",    "value": "5" },
+          { "label": "Rythme cardiaque + pas / Heart rate + steps",            "value": "6" },
+          { "label": "Distance + calories / Distance + calories",              "value": "7" },
+          { "label": "Pas + distance / Steps + distance",                      "value": "8" },
+          { "label": "Calories + pas / Calories + steps",                      "value": "2" }
+        ]
+      },
+      {
+        "type": "select",
+        "messageKey": "COMP_BOTTOM",
+        "label": "Complication sous l'heure / Complication below the time",
+        "defaultValue": "0",
+        "options": [
+          { "label": "Météo horaire / Hourly weather",                         "value": "0" },
+          { "label": "Tendance météo 3 jours (6 si les 2) / 3-day trend (6 if both)", "value": "4" },
+          { "label": "Lever + coucher du soleil / Sunrise + sunset",           "value": "3" },
+          { "label": "Rythme cardiaque + distance / Heart rate + distance",    "value": "1" },
+          { "label": "Rythme cardiaque + calories / Heart rate + calories",    "value": "5" },
+          { "label": "Rythme cardiaque + pas / Heart rate + steps",            "value": "6" },
+          { "label": "Distance + calories / Distance + calories",              "value": "7" },
+          { "label": "Pas + distance / Steps + distance",                      "value": "8" },
+          { "label": "Calories + pas / Calories + steps",                      "value": "2" }
         ]
       }
     ]

@@ -31,6 +31,31 @@
 #ifndef CFG_RED_RING_LATERAL
 #define CFG_RED_RING_LATERAL  0
 #endif
+// Complications des deux rangées de prévisions (0 = météo horaire, 1 = FC + distance,
+// 2 = calories + pas, 3 = lever + coucher du soleil, 4 = tendance 3 jours, 5..8 = autres paires FC / distance / calories / pas)
+#ifndef CFG_COMP_TOP
+#define CFG_COMP_TOP          0
+#endif
+#ifndef CFG_COMP_BOTTOM
+#define CFG_COMP_BOTTOM       0
+#endif
+// Calories : 0 = actives seulement, 1 = actives + au repos
+#ifndef CFG_CALORIES_TOTAL
+#define CFG_CALORIES_TOTAL    0
+#endif
+// Couleurs des icônes des complications (mode « icônes en couleurs »)
+#ifndef CFG_COLOR_ICON_HEART
+#define CFG_COLOR_ICON_HEART  0xFF0000
+#endif
+#ifndef CFG_COLOR_ICON_FLAME
+#define CFG_COLOR_ICON_FLAME  0xFF5500
+#endif
+#ifndef CFG_COLOR_ICON_STEPS
+#define CFG_COLOR_ICON_STEPS  0x55FF55
+#endif
+#ifndef CFG_COLOR_ICON_PIN
+#define CFG_COLOR_ICON_PIN    0xFFAA00
+#endif
 
 // ── Clés AppMessage (téléphone ↔ montre) ─────────────────────────────────
 // Les noms sont déclarés dans messageKeys de package.json ; le SDK en fait les
@@ -42,7 +67,10 @@
 //   LANGUAGE, DATE_FORMAT, TIME_FORMAT, ICON_STYLE, GHOST_LEVEL, FONT_STYLE, COMPLICATION, DIST_UNIT, RED_RING_LATERAL
 //                            réglages de la page Clay (téléphone → montre)
 //   SUNRISE_0..2, SUNSET_0..2  lever / coucher du soleil (s Unix) des 3 prochains jours
-//   TEMP_UNIT                réglage Clay utilisé seulement par le téléphone
+//   COMP_TOP, COMP_BOTTOM    complications des rangées de prévisions du haut / du bas
+//   DAILY_0..5               tendance du jour J … J+5 : bits 0-6 code météo WMO (127 = inconnu),
+//                            8-15 température max + 128, 16-23 min + 128, 24-28 jour du mois, 29-31 jour de semaine (0 = dimanche)
+//   TEMP_UNIT, WEATHER_PERIOD  réglages Clay utilisés seulement par le téléphone
 // ATTENTION : dans le SDK, les MESSAGE_KEY_xxx sont des variables (extern), pas des
 // constantes : on ne peut pas les mettre dans un initialiseur statique. Le tableau
 // est donc rempli au démarrage par init_forecast_keys().
@@ -51,11 +79,19 @@ static uint32_t FORECAST_KEYS[FORECAST_KEY_COUNT];
 
 // Clés lever / coucher du soleil (même raison : variables, remplies au démarrage)
 static uint32_t SUNRISE_KEYS[3], SUNSET_KEYS[3];
+// Tendance sur 3 ou 6 jours (DAILY_0..5) : même raison
+static uint32_t DAILY_KEYS[6];
 
 static void init_forecast_keys(void) {
   SUNRISE_KEYS[0] = MESSAGE_KEY_SUNRISE_0; SUNSET_KEYS[0] = MESSAGE_KEY_SUNSET_0;
   SUNRISE_KEYS[1] = MESSAGE_KEY_SUNRISE_1; SUNSET_KEYS[1] = MESSAGE_KEY_SUNSET_1;
   SUNRISE_KEYS[2] = MESSAGE_KEY_SUNRISE_2; SUNSET_KEYS[2] = MESSAGE_KEY_SUNSET_2;
+  DAILY_KEYS[0] = MESSAGE_KEY_DAILY_0;
+  DAILY_KEYS[1] = MESSAGE_KEY_DAILY_1;
+  DAILY_KEYS[2] = MESSAGE_KEY_DAILY_2;
+  DAILY_KEYS[3] = MESSAGE_KEY_DAILY_3;
+  DAILY_KEYS[4] = MESSAGE_KEY_DAILY_4;
+  DAILY_KEYS[5] = MESSAGE_KEY_DAILY_5;
   FORECAST_KEYS[0] = MESSAGE_KEY_FORECAST_0;
   FORECAST_KEYS[1] = MESSAGE_KEY_FORECAST_1;
   FORECAST_KEYS[2] = MESSAGE_KEY_FORECAST_2;
@@ -78,6 +114,8 @@ static void init_forecast_keys(void) {
 #define PERSIST_FONT_ST   8
 #define PERSIST_DIST_MI   4
 #define PERSIST_RED_RING  9
+#define PERSIST_COMP_TOP  10
+#define PERSIST_COMP_BOT  11
 
 // ── Prévisions horaires : 2 lignes de 5 colonnes (H+1 … H+10) ────────────
 // Entier reçu : bits 0-6 code météo WMO (127 = inconnu), bit 7 jour,
@@ -138,12 +176,24 @@ static int  s_icon_col = CFG_ICON_COLOR; // 0 = icônes monochromes, 1 = icônes
 static int  s_comp     = CFG_COMPLICATION; // 0 pas, 1 FC, 2 distance, 3 soleil, 4 secondes
 static int  s_dist_mi  = CFG_DIST_MILES; // 0 = kilomètres, 1 = miles
 static int  r_r_sides  = CFG_RED_RING_LATERAL; // 0 masqué, 1 affiché
+static int  s_comp_top = CFG_COMP_TOP;      // rangée de prévisions du haut : 0 météo horaire, 1 FC + distance, 2 calories + pas, 3 soleil, 4 tendance 3 jours
+static int  s_comp_bot = CFG_COMP_BOTTOM;   // rangée du bas (mêmes choix)
 
 static char s_weather_trend[64] = "METEO"; // « VILLE : TENDANCE » reçu du téléphone
 
 static int  s_steps           = -1;   // -1 = indisponible (affiche -----)
 static int  s_hr              = 0;   // fréquence cardiaque (0 = pas de mesure)
 static int  s_dist            = -1;  // distance du jour en mètres (-1 = indisponible)
+static int  s_cal             = -1;  // calories du jour (-1 = indisponible)
+
+// Tendance des 6 prochains jours (envoyée par le téléphone ; 3 colonnes par rangée)
+typedef struct {
+  int code;   // code météo WMO du jour (FC_UNKNOWN = pas de donnée)
+  int tmax, tmin;
+  int dom;    // jour du mois (1-31)
+  int wd;     // jour de la semaine (0 = dimanche)
+} DailyFc;
+static DailyFc s_daily[6];
 static time_t s_sunrise[3];          // levers du soleil (s Unix, 0 = inconnu)
 static time_t s_sunset[3];           // couchers du soleil
 static int  s_batt_pct        = 100;
@@ -913,6 +963,319 @@ static int weather_icon(int code, bool day) {
   }
 }
 
+// ── Complications des rangées de prévisions (hors météo horaire) ─────────
+// Valeurs de COMP_TOP / COMP_BOTTOM (gardées compatibles avec la version précédente)
+enum { CK_WEATHER = 0, CK_HR_DIST, CK_CAL_STEPS, CK_SUN, CK_TREND,
+       CK_HR_CAL, CK_HR_STEPS, CK_DIST_CAL, CK_DIST_STEPS, CK_COUNT };
+// Mesures affichables dans une demi-rangée
+enum { M_HR = 0, M_DIST, M_CAL, M_STEPS };
+
+// cœur (fréquence cardiaque)
+static const uint16_t WI_HEART[WI_H] = {
+  0x0000,  // ................
+  0x0000,  // ................
+  0x3C3C,  // ..####....####..
+  0x7E7E,  // .######..######.
+  0xFFFF,  // ################
+  0xFFFF,  // ################
+  0xFFFF,  // ################
+  0xFFFF,  // ################
+  0x7FFE,  // .##############.
+  0x3FFC,  // ..############..
+  0x1FF8,  // ...##########...
+  0x0FF0,  // ....########....
+  0x07E0,  // .....######.....
+  0x03C0,  // ......####......
+  0x0180,  // .......##.......
+  0x0000,  // ................
+};
+
+// flamme (calories)
+static const uint16_t WI_FLAME[WI_H] = {
+  0x0100,  // .......#........
+  0x0180,  // .......##.......
+  0x01C0,  // .......###......
+  0x03C0,  // ......####......
+  0x07C0,  // .....#####......
+  0x07E4,  // .....######..#..
+  0x0FEC,  // ....#######.##..
+  0x0FF6,  // ....########.##.
+  0x1FF8,  // ...##########...
+  0x1FFC,  // ...###########..
+  0x1FFC,  // ...###########..
+  0x1FFC,  // ...###########..
+  0x0FF8,  // ....#########...
+  0x07F0,  // .....#######....
+  0x03E0,  // ......#####.....
+  0x0000,  // ................
+};
+
+// pas (deux empreintes)
+static const uint16_t WI_FEET[WI_H] = {
+  0x0000,  // ................
+  0x0078,  // .........####...
+  0x00F8,  // ........#####...
+  0x00F8,  // ........#####...
+  0x00F8,  // ........#####...
+  0x0078,  // .........####...
+  0x0000,  // ................
+  0x1E70,  // ...####..###....
+  0x3E70,  // ..#####..###....
+  0x3E00,  // ..#####.........
+  0x3E00,  // ..#####.........
+  0x1E00,  // ...####.........
+  0x0000,  // ................
+  0x1C00,  // ...###..........
+  0x1C00,  // ...###..........
+  0x0000,  // ................
+};
+
+// repère (distance)
+static const uint16_t WI_PIN[WI_H] = {
+  0x0000,  // ................
+  0x07E0,  // .....######.....
+  0x0FF0,  // ....########....
+  0x1FF8,  // ...##########...
+  0x1E78,  // ...####..####...
+  0x1C38,  // ...###....###...
+  0x1C38,  // ...###....###...
+  0x1E78,  // ...####..####...
+  0x0FF0,  // ....########....
+  0x0FF0,  // ....########....
+  0x07E0,  // .....######.....
+  0x07E0,  // .....######.....
+  0x03C0,  // ......####......
+  0x03C0,  // ......####......
+  0x0180,  // .......##.......
+  0x0180,  // .......##.......
+};
+
+// lever du soleil (demi-soleil + flèche vers le haut)
+static const uint16_t WI_SUNRISE[WI_H] = {
+  0x0180,  // .......##.......
+  0x03C0,  // ......####......
+  0x07E0,  // .....######.....
+  0x0180,  // .......##.......
+  0x0180,  // .......##.......
+  0x0000,  // ................
+  0x07E0,  // .....######.....
+  0x0FF0,  // ....########....
+  0x1FF8,  // ...##########...
+  0x3FFC,  // ..############..
+  0x3FFC,  // ..############..
+  0x0000,  // ................
+  0xFFFF,  // ################
+  0x0000,  // ................
+  0x3FFC,  // ..############..
+  0x0000,  // ................
+};
+
+// coucher du soleil (demi-soleil + flèche vers le bas)
+static const uint16_t WI_SUNSET[WI_H] = {
+  0x0180,  // .......##.......
+  0x0180,  // .......##.......
+  0x07E0,  // .....######.....
+  0x03C0,  // ......####......
+  0x0180,  // .......##.......
+  0x0000,  // ................
+  0x07E0,  // .....######.....
+  0x0FF0,  // ....########....
+  0x1FF8,  // ...##########...
+  0x3FFC,  // ..############..
+  0x3FFC,  // ..############..
+  0x0000,  // ................
+  0xFFFF,  // ################
+  0x0000,  // ................
+  0x3FFC,  // ..############..
+  0x0000,  // ................
+};
+
+static const char *const WD_FR[7] = {"DIM", "LUN", "MAR", "MER", "JEU", "VEN", "SAM"};
+static const char *const WD_EN[7] = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
+
+// Prochain événement (lever ou coucher) strictement après « now » (0 = aucun)
+static time_t next_event(const time_t *arr, time_t now) {
+  time_t best = 0;
+  for (int i = 0; i < 3; i++) {
+    if (arr[i] > now && (best == 0 || arr[i] < best)) best = arr[i];
+  }
+  return best;
+}
+
+// Heure locale « HH:MM » (12 h si choisi, sans indicateur A/P). Attention : localtime()
+// réutilise un tampon unique : l'appelant sauvegarde / restaure sa struct tm.
+static void fmt_clock(time_t t, char *buf, size_t n) {
+  if (!t) { snprintf(buf, n, "--:--"); return; }
+  struct tm *p = localtime(&t);
+  int h = p->tm_hour;
+  if (s_time12) { h %= 12; if (h == 0) h = 12; }
+  snprintf(buf, n, "%02d:%02d", h, p->tm_min);
+}
+
+// Distance du jour en km ou miles, 1 décimale (« xx.x » : moins précis, mais affiche de plus grandes distances)
+static void fmt_dist(char *buf, size_t n) {
+  if (s_dist < 0) { snprintf(buf, n, "--.-"); return; }
+  int tenth = s_dist_mi ? (int)((int64_t)s_dist * 621371 / 100000000) : (s_dist + 50) / 100;
+  if (tenth > 9999) tenth = 9999;
+  snprintf(buf, n, "%d.%d", tenth / 10, tenth % 10);
+}
+
+// Une demi-rangée : icône 16×16 à gauche, valeur à droite (police DSEG, ou petite police
+// si elle ne tient pas), petite unité tout à droite. Hauteur de cellule ≈ 32 px.
+#define STAT_CELL_H 32
+static void draw_stat_cell(GContext *ctx, int x, int w, int y0, const uint16_t *icon, GColor icol,
+                           const char *value, const char *unit,
+                           GFont f_val, GFont f_small, GFont f_unit) {
+  draw_bits(ctx, icon, x + 3, y0 + (STAT_CELL_H - WI_H) / 2,
+            s_icon_col ? icol : color_from_int(CFG_COLOR_FORECAST_ICON));
+  // Sans unité (soleil, pas) : un peu plus de place pour la valeur, sinon « 07:42 » ne tient
+  // plus en DSEG depuis que les demi-rangées sont recentrées sur le « : » (91 px au lieu de 95)
+  bool has_unit = (unit && unit[0]);
+  int right = x + w - (has_unit ? 5 : 3);
+  int unit_w = 0;
+  if (unit && unit[0]) {
+    unit_w = trend_text_w(unit, f_unit) + 2;
+    graphics_context_set_text_color(ctx, color_from_int(CFG_COLOR_FORECAST_LABEL));
+    graphics_draw_text(ctx, unit, f_unit, GRect(right - unit_w + 2, y0 + 17, unit_w + 2, 11),
+                       GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+  }
+  int vx = x + 3 + WI_W + (has_unit ? 3 : 1);
+  int vr = right - (unit_w ? unit_w + 3 : 0);
+  int avail = vr - vx;
+  graphics_context_set_text_color(ctx, color_from_int(CFG_COLOR_FORECAST_TEMP));
+  if (trend_text_w(value, f_val) <= avail) {
+    graphics_draw_text(ctx, value, f_val, GRect(vx, y0 + 6, avail, 24),
+                       GTextOverflowModeFill, GTextAlignmentRight, NULL);
+  } else {
+    graphics_draw_text(ctx, value, f_small, GRect(vx, y0 + 8, avail, 18),
+                       GTextOverflowModeFill, GTextAlignmentRight, NULL);
+  }
+}
+
+// Tendance : 3 colonnes (jour + date · icône de la journée · min / max). day_base = 0 : jours J à J+2 ;
+// day_base = 3 : jours J+3 à J+5 (les deux rangées en tendance se suivent : 6 jours)
+static void draw_trend_row(GContext *ctx, int x0, int group_w, int y0, int day_base, GFont f_tiny, const struct tm *today) {
+  GColor c_lbl  = color_from_int(CFG_COLOR_FORECAST_LABEL);
+  GColor c_icon = color_from_int(CFG_COLOR_FORECAST_ICON);
+  GColor c_sep  = color_from_int(CFG_COLOR_FORECAST_GHOST);
+  GColor c_temp = color_from_int(CFG_COLOR_FORECAST_TEMP);
+  int cw = group_w / 3;
+
+  // La première colonne est toujours « aujourd'hui » : on saute les jours déjà passés
+  int start = -1;
+  for (int i = 0; i < 6; i++) {
+    if (s_daily[i].code != FC_UNKNOWN && s_daily[i].dom == today->tm_mday) { start = i; break; }
+  }
+
+  for (int j = 0; j < 3; j++) {
+    int cx = x0 + j * cw;
+    int idx = (start >= 0) ? start + day_base + j : -1;
+    bool ok = (idx >= 0 && idx < 6 && s_daily[idx].code != FC_UNKNOWN);
+
+    if (j > 0) {
+      graphics_context_set_stroke_color(ctx, c_sep);
+      graphics_draw_line(ctx, GPoint(cx - 3, y0 + FC_SEP_Y0), GPoint(cx - 3, y0 + FC_SEP_Y1));
+    }
+
+    char lbl[12];
+    if (ok) snprintf(lbl, sizeof(lbl), "%s %d", ((s_lang == 1) ? WD_EN : WD_FR)[s_daily[idx].wd % 7], s_daily[idx].dom);
+    else    snprintf(lbl, sizeof(lbl), "--");
+    graphics_context_set_text_color(ctx, c_lbl);
+    graphics_draw_text(ctx, lbl, f_tiny, GRect(cx + 2, y0 + FC_LBL_DY, cw - 2, 11),
+                       GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+
+    int y_ico = y0 + FC_ICO_DY;
+    if (ok) draw_icon(ctx, weather_icon(s_daily[idx].code, true), cx + 1, y_ico + FC_ICON16_DY, c_icon);
+
+    // min et max en blanc, séparateur « / » en jaune
+    char lo[8], hi[8];
+    if (ok) { snprintf(lo, sizeof(lo), "%d", s_daily[idx].tmin); snprintf(hi, sizeof(hi), "%d", s_daily[idx].tmax); }
+    else    { snprintf(lo, sizeof(lo), "--");                    hi[0] = '\0'; }
+    int tx = cx + 20;
+    int lw = trend_text_w(lo, f_tiny);
+    int sw = trend_text_w("/", f_tiny);
+    graphics_context_set_text_color(ctx, c_temp);
+    graphics_draw_text(ctx, lo, f_tiny, GRect(tx, y_ico + 2, lw + 4, 16),
+                       GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+    if (hi[0]) {
+      graphics_context_set_text_color(ctx, GColorYellow);
+      graphics_draw_text(ctx, "/", f_tiny, GRect(tx + lw, y_ico + 2, sw + 4, 16),
+                         GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+      graphics_context_set_text_color(ctx, c_temp);
+      graphics_draw_text(ctx, hi, f_tiny, GRect(tx + lw + sw, y_ico + 2, 40, 16),
+                         GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+    }
+  }
+}
+
+// Texte, icône, couleur et unité d'une mesure
+static void metric_info(int m, char *buf, size_t n, const uint16_t **icon, GColor *col, const char **unit) {
+  *unit = NULL;
+  switch (m) {
+    case M_HR:
+      if (s_hr > 0) snprintf(buf, n, "%d", s_hr > 999 ? 999 : s_hr); else snprintf(buf, n, "---");
+      *icon = WI_HEART; *col = color_from_int(CFG_COLOR_ICON_HEART); *unit = "BPM";
+      break;
+    case M_DIST:
+      fmt_dist(buf, n);
+      *icon = WI_PIN; *col = color_from_int(CFG_COLOR_ICON_PIN); *unit = s_dist_mi ? "MI" : "KM";
+      break;
+    case M_CAL:
+      if (s_cal >= 0) snprintf(buf, n, "%d", s_cal > 99999 ? 99999 : s_cal); else snprintf(buf, n, "-----");
+      *icon = WI_FLAME; *col = color_from_int(CFG_COLOR_ICON_FLAME); *unit = "KCAL";
+      break;
+    default:   // M_STEPS
+      if (s_steps >= 0) snprintf(buf, n, "%d", s_steps > 99999 ? 99999 : s_steps); else snprintf(buf, n, "-----");
+      *icon = WI_FEET; *col = color_from_int(CFG_COLOR_ICON_STEPS);
+      break;
+  }
+}
+
+// Les deux mesures (gauche, droite) d'une complication « paire » ; false si ce n'en est pas une
+static bool comp_pair(int kind, int *l, int *r) {
+  switch (kind) {
+    case CK_HR_DIST:    *l = M_HR;   *r = M_DIST;  return true;
+    case CK_CAL_STEPS:  *l = M_CAL;  *r = M_STEPS; return true;
+    case CK_HR_CAL:     *l = M_HR;   *r = M_CAL;   return true;
+    case CK_HR_STEPS:   *l = M_HR;   *r = M_STEPS; return true;
+    case CK_DIST_CAL:   *l = M_DIST; *r = M_CAL;   return true;
+    case CK_DIST_STEPS: *l = M_STEPS; *r = M_DIST;  return true;   // pas + distance
+    default:            return false;
+  }
+}
+
+// Une rangée (hors météo horaire) : 2 demi-rangées (lever + coucher, ou 2 mesures parmi
+// FC, distance, calories, pas) ou la tendance sur 3 jours.
+static void draw_comp_row(GContext *ctx, int kind, int x0, int group_w, int y0, int mid, int day_base,
+                          GFont f_tiny, GFont f_lbl, GFont f_val, const struct tm *today) {
+  if (kind == CK_TREND) { draw_trend_row(ctx, x0, group_w, y0, day_base, f_tiny, today); return; }
+
+  // Paire : séparateur EXACTEMENT sur l'axe vertical du « : » de l'heure (« mid », centre du
+  // panneau où l'heure est centrée) ; deux demi-rangées de même largeur, symétriques par rapport à lui.
+  int half = group_w / 2 - 4;
+  graphics_context_set_stroke_color(ctx, color_from_int(CFG_COLOR_FORECAST_GHOST));
+  graphics_draw_line(ctx, GPoint(mid, y0 + FC_SEP_Y0), GPoint(mid, y0 + FC_SEP_Y1));
+
+  char a[16], b[16];
+  const uint16_t *ia = WI_HEART, *ib = WI_HEART;
+  GColor ca = GColorWhite, cb = GColorWhite;
+  const char *ua = NULL, *ub = NULL;
+  int ml = M_HR, mr = M_DIST;
+  if (kind == CK_SUN) {   // prochain lever et prochain coucher
+    time_t n = time(NULL);
+    fmt_clock(next_event(s_sunrise, n), a, sizeof(a));
+    fmt_clock(next_event(s_sunset,  n), b, sizeof(b));
+    ia = WI_SUNRISE; ca = color_from_int(CFG_COLOR_ICON_SUN);
+    ib = WI_SUNSET;  cb = color_from_int(CFG_COLOR_ICON_SUN);
+  } else {
+    if (!comp_pair(kind, &ml, &mr)) { ml = M_HR; mr = M_DIST; }
+    metric_info(ml, a, sizeof(a), &ia, &ca, &ua);
+    metric_info(mr, b, sizeof(b), &ib, &cb, &ub);
+  }
+  draw_stat_cell(ctx, mid - half, half, y0, ia, ca, a, ua, f_val, f_tiny, f_lbl);
+  draw_stat_cell(ctx, mid,        half, y0, ib, cb, b, ub, f_val, f_tiny, f_lbl);
+}
+
 static void canvas_update_proc(Layer *layer, GContext *ctx) {
   GRect bounds = layer_get_bounds(layer);
   int W = bounds.size.w;
@@ -1334,6 +1697,13 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
     int x0 = (W - group_w) / 2 + PX(4);
 
     bool fresh = fc_fresh();
+    // localtime() (complication soleil) réutilise le tampon de tnow : on le sauvegarde / restaure
+    struct tm tsave = *tnow;
+    int kinds[FC_ROWS] = { s_comp_top, s_comp_bot };
+    // Deux rangées météo : elles se suivent (H+1…H+5 puis H+6…H+10) ; une seule : H+1…H+5
+    bool both_wx = (kinds[0] == CK_WEATHER && kinds[1] == CK_WEATHER);
+    // Deux rangées en tendance : elles se suivent (J à J+2, puis J+3 à J+5 : 6 jours)
+    bool both_tr = (kinds[0] == CK_TREND && kinds[1] == CK_TREND);
     GColor c_lbl   = color_from_int(CFG_COLOR_FORECAST_LABEL);
     GColor c_icon  = color_from_int(CFG_COLOR_FORECAST_ICON);
     GColor c_ghost = color_from_int(CFG_COLOR_FORECAST_GHOST);   // séparateurs
@@ -1344,8 +1714,14 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
       int y0    = (row == 0) ? y_btn : y_fc;   // haut de la cellule
       int y_ico = y0 + FC_ICO_DY;
 
+      if (kinds[row] != CK_WEATHER) {   // autre complication : FC + distance, calories + pas, soleil, tendance 3 jours
+        draw_comp_row(ctx, kinds[row], x0, group_w, y0, ix + iw / 2, (both_tr && row == 1) ? 3 : 0, f_tiny, f_lbl, f_date, &tsave);
+        continue;
+      }
+      int fc_base = (both_wx && row == 1) ? FC_PER_ROW : 0;
+
       for (int c = 0; c < FC_PER_ROW; c++) {
-        int i  = row * FC_PER_ROW + c;
+        int i  = fc_base + c;
         int cx = x0 + c * col_w;
         bool ok = fc_slot_valid(i);
 
@@ -1394,6 +1770,7 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
                            GTextOverflowModeFill, GTextAlignmentLeft, NULL);
       }
     }
+    *tnow = tsave;
   }
 
 // ── 11. Bandeau du bas : ville + tendance météo (texte jaune) ──────────
@@ -1445,6 +1822,14 @@ static void update_health(void) {
                                        time_start_of_today(), time(NULL));
   if (m & HealthServiceAccessibilityMaskAvailable)
     s_dist = (int)health_service_sum_today(HealthMetricWalkedDistanceMeters);
+  m = health_service_metric_accessible(HealthMetricActiveKCalories,
+                                       time_start_of_today(), time(NULL));
+  if (m & HealthServiceAccessibilityMaskAvailable) {
+    s_cal = (int)health_service_sum_today(HealthMetricActiveKCalories);
+#if CFG_CALORIES_TOTAL
+    s_cal += (int)health_service_sum_today(HealthMetricRestingKCalories);
+#endif
+  }
   m = health_service_metric_accessible(HealthMetricHeartRateBPM,
                                        time(NULL), time(NULL));
   if (m & HealthServiceAccessibilityMaskAvailable)
@@ -1527,6 +1912,27 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
     r_r_sides = (t->value->int32 == 1) ? 1 : 0;
     persist_write_int(PERSIST_RED_RING, r_r_sides);
     if (s_canvas) layer_mark_dirty(s_canvas);
+  }
+  if ((t = dict_find(iter, MESSAGE_KEY_COMP_TOP))) {
+    s_comp_top = (int)t->value->int32;
+    if (s_comp_top < 0 || s_comp_top >= CK_COUNT) s_comp_top = 0;
+    persist_write_int(PERSIST_COMP_TOP, s_comp_top);
+  }
+  if ((t = dict_find(iter, MESSAGE_KEY_COMP_BOTTOM))) {
+    s_comp_bot = (int)t->value->int32;
+    if (s_comp_bot < 0 || s_comp_bot >= CK_COUNT) s_comp_bot = 0;
+    persist_write_int(PERSIST_COMP_BOT, s_comp_bot);
+  }
+  // Tendance sur 6 jours : code, max, min, jour du mois, jour de la semaine
+  for (int i = 0; i < 6; i++) {
+    if ((t = dict_find(iter, DAILY_KEYS[i]))) {
+      uint32_t v = (uint32_t)t->value->int32;
+      s_daily[i].code = (int)(v & 0x7F);
+      s_daily[i].tmax = (int)((v >> 8) & 0xFF) - 128;
+      s_daily[i].tmin = (int)((v >> 16) & 0xFF) - 128;
+      s_daily[i].dom  = (int)((v >> 24) & 0x1F);
+      s_daily[i].wd   = (int)((v >> 29) & 0x07);
+    }
   }
   // Lever / coucher du soleil (0 = inconnu)
   for (int i = 0; i < 3; i++) {
@@ -1653,10 +2059,15 @@ static void load_settings(void) {
   if (persist_exists(PERSIST_DIST_MI))  s_dist_mi  = (persist_read_int(PERSIST_DIST_MI) == 1) ? 1 : 0;
   if (s_comp < 0 || s_comp > 4) s_comp = CFG_COMPLICATION;
   if (persist_exists(PERSIST_RED_RING)) r_r_sides = (persist_read_int(PERSIST_RED_RING) == 1) ? 1 : 0;
+  if (persist_exists(PERSIST_COMP_TOP)) s_comp_top = persist_read_int(PERSIST_COMP_TOP);
+  if (s_comp_top < 0 || s_comp_top >= CK_COUNT) s_comp_top = CFG_COMP_TOP;
+  if (persist_exists(PERSIST_COMP_BOT)) s_comp_bot = persist_read_int(PERSIST_COMP_BOT);
+  if (s_comp_bot < 0 || s_comp_bot >= CK_COUNT) s_comp_bot = CFG_COMP_BOTTOM;
 }
 
 static void init(void) {
   init_forecast_keys();
+  for (int i = 0; i < 6; i++) s_daily[i].code = FC_UNKNOWN;   // pas encore de tendance
   load_settings();
   battery_state_service_subscribe(battery_state_handler);
   s_batt_pct = (int)battery_state_service_peek().charge_percent;
@@ -1677,7 +2088,7 @@ static void init(void) {
   {
     uint32_t in_max  = app_message_inbox_size_maximum();
     uint32_t out_max = app_message_outbox_size_maximum();
-    app_message_open(in_max  < 512u ? in_max  : 512u,
+    app_message_open(in_max  < 768u ? in_max  : 768u,   // 512 → 768 : tendance 3 jours + 3 réglages en plus
                      out_max < 256u ? out_max : 256u);
   }
   app_message_register_inbox_received(inbox_received);

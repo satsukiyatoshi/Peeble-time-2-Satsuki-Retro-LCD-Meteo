@@ -4,9 +4,11 @@
  * Réglages : page de configuration Clay (langue, format de date, unité de
  * température ; voir clay-config.js) et config.js (reprise après échec).
  *
- * La montre affiche 10 colonnes horaires sur 2 lignes de 5 : les 10 heures
- * pleines locales qui suivent l'heure courante, de heure en heure
- * (ex. à 13h33 : 14h, 15h, … 23h). Plus de colonne « maintenant ».
+ * La montre reçoit 10 créneaux météo : à partir de la prochaine heure pleine locale, tous
+ * les 1, 2, 3 ou 4 h selon la « période météo » choisie dans Clay
+ * (ex. à 13h33, période 1 h : 14h, 15h, … 23h ; période 2 h : 14h, 16h, … 08h).
+ * Elle les affiche (selon les complications choisies) sur 1 ou 2 rangées de 5.
+ * Elle reçoit aussi la tendance des 6 jours (DAILY_0..5 : code météo, max, min, date).
  * Il envoie aussi les heures de lever/coucher du soleil (complication) et un texte « VILLE : TENDANCE » (ex. « BORDEAUX : PLUIE 8% »).
  * Chaque colonne est envoyée dans un seul entier :
  *   bits 0-6   code météo WMO (127 = inconnu)
@@ -41,7 +43,10 @@ var K = {
   FONT_STYLE: 'FONT_STYLE',            // téléphone → montre : 0..3 = 7 segments (Classic, Classic Mini, Modern, Modern Mini), 4..7 = 14 segments (mêmes)
   COMPLICATION: 'COMPLICATION',        // téléphone → montre : 0 pas, 1 FC, 2 distance, 3 soleil, 4 secondes
   DIST_UNIT: 'DIST_UNIT',              // téléphone → montre : 0 = kilomètres, 1 = miles
-  RED_RING_LATERAL: 'RED_RING_LATERAL' // téléphone → montre : 0 = bandes latérales masquées, 1 = affichées
+  RED_RING_LATERAL: 'RED_RING_LATERAL', // téléphone → montre : 0 = bandes latérales masquées, 1 = affichées
+  COMP_TOP: 'COMP_TOP',                // téléphone → montre : rangée du haut : 0 météo horaire, 1 FC + distance, 2 calories + pas, 3 soleil, 4 tendance 3 jours, 5 FC + calories, 6 FC + pas, 7 distance + calories, 8 pas + distance
+  COMP_BOTTOM: 'COMP_BOTTOM'           // téléphone → montre : rangée du bas (mêmes choix)
+  // WEATHER_PERIOD (1..4 h) ne sert qu'au téléphone : les libellés d'heure arrivent déjà calculés
 };
 
 function forecastKey(i) {
@@ -57,7 +62,8 @@ function readSettings() {
   return {
     saved: (s.LANGUAGE !== undefined || s.DATE_FORMAT !== undefined || s.TIME_FORMAT !== undefined || s.ICON_STYLE !== undefined || s.GHOST_LEVEL !== undefined || s.FONT_STYLE !== undefined ||
             s.TEMP_UNIT !== undefined || s.RED_RING_LATERAL !== undefined ||
-            s.COMPLICATION !== undefined || s.DIST_UNIT !== undefined),
+            s.COMPLICATION !== undefined || s.DIST_UNIT !== undefined ||
+            s.WEATHER_PERIOD !== undefined || s.COMP_TOP !== undefined || s.COMP_BOTTOM !== undefined),
     // icônes en couleurs par défaut (aussi si ce réglage n'a jamais été enregistré)
     iconColor: (s.ICON_STYLE === undefined || parseInt(s.ICON_STYLE, 10) === 1) ? 1 : 0,
     ghost: Math.max(0, Math.min(2, parseInt(s.GHOST_LEVEL, 10) || 0)),
@@ -65,6 +71,9 @@ function readSettings() {
     time12: parseInt(s.TIME_FORMAT, 10) === 1 ? 1 : 0,
     comp: Math.max(0, Math.min(4, parseInt(s.COMPLICATION, 10) || 0)),
     dist: parseInt(s.DIST_UNIT, 10) === 1 ? 1 : 0,
+    period: Math.max(1, Math.min(4, parseInt(s.WEATHER_PERIOD, 10) || 1)),
+    compTop: Math.max(0, Math.min(8, parseInt(s.COMP_TOP, 10) || 0)),
+    compBot: Math.max(0, Math.min(8, parseInt(s.COMP_BOTTOM, 10) || 0)),
     redRing: parseInt(s.RED_RING_LATERAL, 10) === 1 ? 1 : 0,
     lang: parseInt(s.LANGUAGE, 10) === 1 ? 1 : 0,
     date: parseInt(s.DATE_FORMAT, 10) === 1 ? 1 : 0,
@@ -86,6 +95,8 @@ function addSettings(msg) {
     msg[K.COMPLICATION] = s.comp;
     msg[K.DIST_UNIT] = s.dist;
     msg[K.RED_RING_LATERAL] = s.redRing;
+    msg[K.COMP_TOP] = s.compTop;
+    msg[K.COMP_BOTTOM] = s.compBot;
   }
   return msg;
 }
@@ -130,13 +141,14 @@ function pack(code, isDay, temp, hourField) {
 }
 
 // Instants (secondes Unix) des COLS créneaux : heures pleines LOCALES, la
-// première étant l'heure pleine strictement suivante (13h00 ou 13h42 → 14h00).
-function slotTimes(nowSec) {
+// première étant l'heure pleine strictement suivante (13h00 ou 13h42 → 14h00),
+// puis un créneau tous les « period » heures (1 à 4, réglage Clay).
+function slotTimes(nowSec, period) {
   var t = new Date(nowSec * 1000);
   t.setMinutes(0, 0, 0);                         // heure pleine locale courante
   var first = Math.round(t.getTime() / 1000) + 3600;
   var out = [];
-  for (var i = 0; i < COLS; i++) out.push(first + i * 3600);
+  for (var i = 0; i < COLS; i++) out.push(first + i * period * 3600);
   return out;
 }
 
@@ -289,6 +301,33 @@ function buildWeatherTrend(data, cityName) {
 
 // Lever / coucher du soleil des 3 jours (secondes Unix, 0 = pas de lever ou de
 // coucher ce jour-là, ex. jour ou nuit polaire). La montre choisit le prochain.
+// Tendance des 6 jours (J … J+5), un entier par jour (3 par rangée, 6 si les deux rangées sont en tendance) :
+//   bits 0-6 code météo WMO du jour (le plus sévère de la journée, 127 = inconnu)
+//   bits 8-15 température max + 128, bits 16-23 min + 128
+//   bits 24-28 jour du mois, bits 29-31 jour de la semaine (0 = dimanche)
+function addDaily(msg, data) {
+  var d = data.daily || {};
+  var tm = d.time || [], wc = d.weather_code || [];
+  var mx = d.temperature_2m_max || [], mn = d.temperature_2m_min || [];
+  // les heures daily sont des minuits LOCAUX du lieu : on ajoute le décalage UTC du lieu pour lire la date
+  var off = (typeof data.utc_offset_seconds === 'number') ? data.utc_offset_seconds
+                                                          : -new Date().getTimezoneOffset() * 60;
+  function t8(v) {
+    if (typeof v !== 'number' || !isFinite(v)) return 128;
+    return Math.max(-128, Math.min(127, Math.round(v))) + 128;
+  }
+  for (var i = 0; i < 6; i++) {
+    var code = (typeof wc[i] === 'number' && isFinite(wc[i])) ? (wc[i] & 0x7F) : 127;
+    var dom = 0, wd = 0;
+    if (typeof tm[i] === 'number' && isFinite(tm[i])) {
+      var dt = new Date((tm[i] + off) * 1000);
+      dom = dt.getUTCDate();
+      wd = dt.getUTCDay();
+    }
+    msg['DAILY_' + i] = code | (t8(mx[i]) << 8) | (t8(mn[i]) << 16) | ((dom & 0x1F) << 24) | ((wd & 7) << 29);
+  }
+}
+
 function addSun(msg, data) {
   var d = data.daily || {};
   var sr = d.sunrise || [], ss = d.sunset || [];
@@ -304,7 +343,7 @@ function buildSlots(data) {
   var nowSec = Math.floor(Date.now() / 1000);
   var slots = [];
 
-  var targets = slotTimes(nowSec);
+  var targets = slotTimes(nowSec, readSettings().period);
   for (var i = 0; i < targets.length; i++) {
     var idx = nearestHour(times, targets[i]);
     var code, day, temp;
@@ -338,8 +377,8 @@ function requestForecast(lat, lon) {
   var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat.toFixed(3) +
             '&longitude=' + lon.toFixed(3) +
             '&hourly=temperature_2m,weather_code,is_day,precipitation' +
-            '&daily=sunrise,sunset' +
-            '&forecast_days=3&timezone=auto&timeformat=unixtime&temperature_unit=' + unit;
+            '&daily=sunrise,sunset,weather_code,temperature_2m_max,temperature_2m_min' +
+            '&forecast_days=6&timezone=auto&timeformat=unixtime&temperature_unit=' + unit;
 
   var req = new XMLHttpRequest();
   req.open('GET', url, true);
@@ -378,6 +417,7 @@ function requestForecast(lat, lon) {
 		  msg[K.FORECAST_TS] = Math.floor(Date.now() / 1000);
 		  msg[K.WEATHER_TREND] = trend;
 		  addSun(msg, data);
+		  addDaily(msg, data);
 		  addSettings(msg);
 
 		  sendMsg(msg, 'prévisions + tendance');
