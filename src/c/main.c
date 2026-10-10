@@ -39,6 +39,19 @@
 #ifndef CFG_COMP_BOTTOM
 #define CFG_COMP_BOTTOM       0
 #endif
+// Segments de la pile : 0 = monochrome (rouge sous 10 %), 1 = couleur (vert / jaune / rouge)
+#ifndef CFG_BATT_COLOR
+#define CFG_BATT_COLOR        0
+#endif
+#ifndef CFG_COLOR_BATT_GREEN
+#define CFG_COLOR_BATT_GREEN  0x00AA00
+#endif
+#ifndef CFG_COLOR_BATT_YELLOW
+#define CFG_COLOR_BATT_YELLOW 0xFFAA00
+#endif
+#ifndef CFG_COLOR_BATT_RED
+#define CFG_COLOR_BATT_RED    0xFF0000
+#endif
 // Calories : 0 = actives seulement, 1 = actives + au repos
 #ifndef CFG_CALORIES_TOTAL
 #define CFG_CALORIES_TOTAL    0
@@ -67,6 +80,7 @@
 //   LANGUAGE, DATE_FORMAT, TIME_FORMAT, ICON_STYLE, GHOST_LEVEL, FONT_STYLE, COMPLICATION, DIST_UNIT, RED_RING_LATERAL
 //                            réglages de la page Clay (téléphone → montre)
 //   SUNRISE_0..2, SUNSET_0..2  lever / coucher du soleil (s Unix) des 3 prochains jours
+//   BATT_STYLE               segments de la pile : 0 monochrome (rouge < 10 %), 1 couleur (vert / jaune / rouge)
 //   COMP_TOP, COMP_BOTTOM    complications des rangées de prévisions du haut / du bas
 //   DAILY_0..5               tendance du jour J … J+5 : bits 0-6 code météo WMO (127 = inconnu),
 //                            8-15 température max + 128, 16-23 min + 128, 24-28 jour du mois, 29-31 jour de semaine (0 = dimanche)
@@ -116,6 +130,7 @@ static void init_forecast_keys(void) {
 #define PERSIST_RED_RING  9
 #define PERSIST_COMP_TOP  10
 #define PERSIST_COMP_BOT  11
+#define PERSIST_BATT      12
 
 // ── Prévisions horaires : 2 lignes de 5 colonnes (H+1 … H+10) ────────────
 // Entier reçu : bits 0-6 code météo WMO (127 = inconnu), bit 7 jour,
@@ -173,11 +188,13 @@ static int  s_font_style   = CFG_FONT_STYLE;   // 0..3 = 7 segments (Classic, Cl
 static int  s_ghost    = CFG_GHOST_LEVEL; // segments éteints : 0 = normal, 1 = léger, 2 = désactivés
 #define GHOST_ON (s_ghost != 2)
 static int  s_icon_col = CFG_ICON_COLOR; // 0 = icônes monochromes, 1 = icônes en couleurs
-static int  s_comp     = CFG_COMPLICATION; // 0 pas, 1 FC, 2 distance, 3 soleil, 4 secondes
+static int  s_comp     = CFG_COMPLICATION; // 0 pas, 1 FC, 2 distance, 3 soleil, 4 secondes, 5 batterie
 static int  s_dist_mi  = CFG_DIST_MILES; // 0 = kilomètres, 1 = miles
 static int  r_r_sides  = CFG_RED_RING_LATERAL; // 0 masqué, 1 affiché
 static int  s_comp_top = CFG_COMP_TOP;      // rangée de prévisions du haut : 0 météo horaire, 1 FC + distance, 2 calories + pas, 3 soleil, 4 tendance 3 jours
 static int  s_comp_bot = CFG_COMP_BOTTOM;   // rangée du bas (mêmes choix)
+static int  s_batt_color = CFG_BATT_COLOR;  // segments de la pile : 0 monochrome (rouge < 10 %), 1 couleur (vert / jaune / rouge)
+static bool s_charging   = false;           // en charge : les segments clignotent à la seconde
 
 static char s_weather_trend[64] = "METEO"; // « VILLE : TENDANCE » reçu du téléphone
 
@@ -333,9 +350,21 @@ static void lcd_text(GContext *ctx, const char *ghost, const char *real,
 }
 
 // ── Battery callback (accurate, immediate updates) ───────────────────────
+static void update_tick_subscription(void);
 static void battery_state_handler(BatteryChargeState state) {
   s_batt_pct = (int)state.charge_percent;
+  bool was = s_charging;
+  s_charging = state.is_charging;
+  if (was != s_charging) update_tick_subscription();   // tick à la seconde pendant la charge (clignotement)
   if (s_canvas) layer_mark_dirty(s_canvas);
+}
+
+// Couleur de la pile / du pourcentage selon le niveau. Monochrome : couleur normale (sombre sur le
+// LCD blanc, blanche sur le panneau noir) et rouge sous 10 %. Couleur : vert ≥ 50 %, jaune 10-49 %, rouge < 10 %.
+static GColor batt_color(int pct, bool on_dark) {
+  if (pct < 10) return color_from_int(CFG_COLOR_BATT_RED);
+  if (!s_batt_color) return on_dark ? GColorWhite : color_from_int(CFG_COLOR_FG);
+  return color_from_int(pct >= 50 ? CFG_COLOR_BATT_GREEN : CFG_COLOR_BATT_YELLOW);
 }
 
 // ── Bandeau météo : ville + tendance, largeur calculée séparément ─────────
@@ -1426,13 +1455,14 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
          GRect(x_l, y_dr + (dr_h - 20) / 2, date_w, 24),
          col_ghost, col_fg, GTextAlignmentLeft);
 
-  // ── 6. Case de complication : pas / fréquence cardiaque / distance (+ K ou M) / soleil / secondes ──
+  // ── 6. Case de complication : pas / fréquence cardiaque / distance (+ K ou M) / soleil / secondes / batterie ──
   {
     char cstr[24];
     const char *ghost = "88888";
     int arrow = 0;   // soleil : 0 = aucune, 1 = lever (▲), 2 = coucher (▼)
     char unit_ch = 0;   // distance : 'K' (km) ou 'M' (miles), 0 = aucune
     int hr_logo = 0;    // fréquence cardiaque : logo de battement dans les 2 derniers chiffres
+    int batt_logo = 0;  // batterie : « % » + logo de pile dans les 2 derniers chiffres
     switch (s_comp) {
       case 1:   // fréquence cardiaque (BPM) : 3 chiffres de gauche + logo de battement
         hr_logo = 1;
@@ -1474,6 +1504,11 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
         ghost = "88:88";
         break;
       }
+      case 5:   // pourcentage de batterie : 3 chiffres de gauche + « % » + logo de pile
+        batt_logo = 1;
+        snprintf(cstr, sizeof(cstr), "%d", s_batt_pct);
+        ghost = "888";
+        break;
       case 4:   // secondes (le tick passe alors à la seconde)
         snprintf(cstr, sizeof(cstr), "%02d", tnow->tm_sec);
         ghost = "88";
@@ -1492,7 +1527,7 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
     GRect all_r = GRect(comp_x + PX(3), ty, comp_w - PX(6), 24);
     GTextAlignment align = GTextAlignmentRight;
     int unit_x = 0, unit_gap = 0;   // place libre à droite des chiffres (K / M ou logo)
-    if (unit_ch || hr_logo) {
+    if (unit_ch || hr_logo || batt_logo) {
       // Grille de 5 chiffres (comme les pas) : la distance utilise les 4 de gauche
       // (« 88.88 ») et le 5e emplacement reçoit la lettre K ou M ; la fréquence
       // cardiaque utilise les 3 de gauche (« 888 ») et le logo les 2 derniers.
@@ -1530,6 +1565,38 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
     if (hr_logo && unit_gap > 8) {
       int lw = unit_gap - 3;                         // 2 px d'espace à gauche, 1 px à droite
       draw_ecg(ctx, unit_x - lw - 1, y_dr + (dr_h - 14) / 2 + 1, lw, 14, col_fg);
+    }
+
+    // Batterie : « % » (petite lettre 3×5) puis logo de pile dans l'espace des 2 derniers chiffres.
+    // Les chiffres restent en segments noirs ; seul le logo prend la couleur du niveau (rouge sous 10 %,
+    // et vert / jaune / rouge si les segments de la pile sont réglés en « couleur »).
+    if (batt_logo && unit_gap > 8) {
+      int bt_x0 = unit_x - unit_gap + 2;               // même zone que le logo de battement
+      int bt_x1 = unit_x - 1;
+      int bt_lx  = bt_x0;
+      if (bt_x1 - bt_x0 - 8 >= 10) {                     // assez de place pour « % » + logo
+        static const uint8_t GPC[5] = {5, 1, 2, 4, 5};   // % : 101 001 010 100 101
+        graphics_context_set_fill_color(ctx, col_fg);
+        int bt_py = y_dr + (dr_h - 10) / 2 + 1;
+        for (int row = 0; row < 5; row++)
+          for (int col = 0; col < 3; col++)
+            if (GPC[row] & (4 >> col))
+              graphics_fill_rect(ctx, GRect(bt_x0 + col * 2, bt_py + row * 2, 2, 2), 0, GCornerNone);
+        bt_lx = bt_x0 + 8;
+      }
+      GColor bt_col = batt_color(s_batt_pct, false);
+      int bt_w = bt_x1 - bt_lx - 2;                         // corps (le plot fait 2 px)
+      int bt_y = y_dr + (dr_h - 9) / 2 + 1;
+      if (bt_w >= 8) {
+        graphics_context_set_stroke_color(ctx, bt_col);
+        graphics_draw_rect(ctx, GRect(bt_lx, bt_y, bt_w, 9));                                  // contour
+        graphics_context_set_fill_color(ctx, bt_col);
+        graphics_fill_rect(ctx, GRect(bt_lx + bt_w, bt_y + 2, 2, 5), 0, GCornerNone);          // plot
+        int bt_in = bt_w - 4;
+        int bt_fill = (s_batt_pct * bt_in + 50) / 100;                                        // niveau
+        if (bt_fill < 1 && s_batt_pct > 0) bt_fill = 1;
+        if (bt_fill > 0) graphics_fill_rect(ctx, GRect(bt_lx + 2, bt_y + 2, bt_fill, 5), 0, GCornerNone);
+      }
     }
 
     // Soleil : petite flèche à gauche (▲ lever, ▼ coucher) et trait d'horizon
@@ -1620,9 +1687,13 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
       int in_y   = ib_y + 2;
       int lit    = (s_batt_pct * n_seg + 50) / 100;
       if (lit > n_seg) lit = n_seg;
+      GColor col_seg = batt_color(s_batt_pct, false);
+      // En charge : les segments allumés clignotent (éteints une seconde sur deux)
+      bool blink_off = s_charging && (tnow->tm_sec & 1);
       for (int k = 0; k < n_seg; k++) {
-        if (k >= lit && !GHOST_ON) continue;
-        graphics_context_set_fill_color(ctx, k < lit ? col_fg : col_ghost);
+        bool on = (k < lit) && !blink_off;
+        if (!on && !GHOST_ON) continue;
+        graphics_context_set_fill_color(ctx, on ? col_seg : col_ghost);
         graphics_fill_rect(ctx, GRect(in_x + k * step, in_y, seg_w, in_h),
                            0, GCornerNone);
       }
@@ -1852,15 +1923,16 @@ static void tick_handler(struct tm *tick_time, TimeUnits units) {
     weather_watchdog();
     update_health();
     s_batt_pct = (int)battery_state_service_peek().charge_percent;
+    s_charging = battery_state_service_peek().is_charging;
   }
   if (s_canvas) layer_mark_dirty(s_canvas);
 }
 
 // ── Abonnement au tick : à la seconde seulement si la complication « secondes »
-// est choisie (consomme plus de batterie), sinon à la minute ──
+// est choisie ou si la montre est en charge (clignotement), sinon à la minute ──
 static void update_tick_subscription(void) {
   tick_timer_service_unsubscribe();
-  tick_timer_service_subscribe(s_comp == 4 ? SECOND_UNIT : MINUTE_UNIT, tick_handler);
+  tick_timer_service_subscribe((s_comp == 4 || s_charging) ? SECOND_UNIT : MINUTE_UNIT, tick_handler);
 }
 
 // ── AppMessage : prévisions, tendance météo et réglages de la page Clay ──
@@ -1900,7 +1972,7 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
   }
   if ((t = dict_find(iter, MESSAGE_KEY_COMPLICATION))) {
     s_comp = (int)t->value->int32;
-    if (s_comp < 0 || s_comp > 4) s_comp = 0;
+    if (s_comp < 0 || s_comp > 5) s_comp = 0;
     persist_write_int(PERSIST_COMP, s_comp);
     update_tick_subscription();   // secondes : tick à la seconde, sinon à la minute
   }
@@ -1912,6 +1984,10 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
     r_r_sides = (t->value->int32 == 1) ? 1 : 0;
     persist_write_int(PERSIST_RED_RING, r_r_sides);
     if (s_canvas) layer_mark_dirty(s_canvas);
+  }
+  if ((t = dict_find(iter, MESSAGE_KEY_BATT_STYLE))) {
+    s_batt_color = (t->value->int32 == 1) ? 1 : 0;
+    persist_write_int(PERSIST_BATT, s_batt_color);
   }
   if ((t = dict_find(iter, MESSAGE_KEY_COMP_TOP))) {
     s_comp_top = (int)t->value->int32;
@@ -2057,8 +2133,9 @@ static void load_settings(void) {
   if (s_font_style < 0 || s_font_style > 7) s_font_style = CFG_FONT_STYLE;
   if (persist_exists(PERSIST_COMP))     s_comp     = persist_read_int(PERSIST_COMP);
   if (persist_exists(PERSIST_DIST_MI))  s_dist_mi  = (persist_read_int(PERSIST_DIST_MI) == 1) ? 1 : 0;
-  if (s_comp < 0 || s_comp > 4) s_comp = CFG_COMPLICATION;
+  if (s_comp < 0 || s_comp > 5) s_comp = CFG_COMPLICATION;
   if (persist_exists(PERSIST_RED_RING)) r_r_sides = (persist_read_int(PERSIST_RED_RING) == 1) ? 1 : 0;
+  if (persist_exists(PERSIST_BATT)) s_batt_color = (persist_read_int(PERSIST_BATT) == 1) ? 1 : 0;
   if (persist_exists(PERSIST_COMP_TOP)) s_comp_top = persist_read_int(PERSIST_COMP_TOP);
   if (s_comp_top < 0 || s_comp_top >= CK_COUNT) s_comp_top = CFG_COMP_TOP;
   if (persist_exists(PERSIST_COMP_BOT)) s_comp_bot = persist_read_int(PERSIST_COMP_BOT);
@@ -2071,6 +2148,7 @@ static void init(void) {
   load_settings();
   battery_state_service_subscribe(battery_state_handler);
   s_batt_pct = (int)battery_state_service_peek().charge_percent;
+  s_charging = battery_state_service_peek().is_charging;
   update_health();
 #if defined(PBL_HEALTH)
   health_service_events_subscribe(health_handler, NULL);

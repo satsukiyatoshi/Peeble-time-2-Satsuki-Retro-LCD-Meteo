@@ -104,7 +104,8 @@ module.exports = [
           { "label": "Fréquence cardiaque / Heart rate",            "value": "1" },
           { "label": "Distance parcourue / Distance walked",        "value": "2" },
           { "label": "Lever / coucher du soleil / Sunrise / sunset", "value": "3" },
-          { "label": "Secondes / Seconds",                          "value": "4" }
+          { "label": "Secondes / Seconds",                          "value": "4" },
+          { "label": "Pourcentage de batterie / Battery percentage", "value": "5" }
         ]
       },
       {
@@ -125,6 +126,16 @@ module.exports = [
         "options": [
           { "label": "°C (Celsius)",    "value": "0" },
           { "label": "°F (Fahrenheit)", "value": "1" }
+        ]
+      },
+      {
+        "type": "select",
+        "messageKey": "BATT_STYLE",
+        "label": "Segments de la pile / Battery segments",
+        "defaultValue": "0",
+        "options": [
+          { "label": "Monochrome (rouge < 10 %) / Monochrome (red < 10%)",              "value": "0" },
+          { "label": "Couleur (vert / jaune / rouge) / Color (green / yellow / red)",    "value": "1" }
         ]
       },
       {

@@ -41,9 +41,10 @@ var K = {
   ICON_STYLE: 'ICON_STYLE',            // téléphone → montre : 0 = monochrome, 1 = couleurs
   GHOST_LEVEL: 'GHOST_LEVEL',          // téléphone → montre : 0 = défaut, 1 = léger, 2 = désactivé
   FONT_STYLE: 'FONT_STYLE',            // téléphone → montre : 0..3 = 7 segments (Classic, Classic Mini, Modern, Modern Mini), 4..7 = 14 segments (mêmes)
-  COMPLICATION: 'COMPLICATION',        // téléphone → montre : 0 pas, 1 FC, 2 distance, 3 soleil, 4 secondes
+  COMPLICATION: 'COMPLICATION',        // téléphone → montre : 0 pas, 1 FC, 2 distance, 3 soleil, 4 secondes, 5 batterie
   DIST_UNIT: 'DIST_UNIT',              // téléphone → montre : 0 = kilomètres, 1 = miles
   RED_RING_LATERAL: 'RED_RING_LATERAL', // téléphone → montre : 0 = bandes latérales masquées, 1 = affichées
+  BATT_STYLE: 'BATT_STYLE',            // téléphone → montre : segments de la pile 0 = monochrome (rouge < 10 %), 1 = couleur
   COMP_TOP: 'COMP_TOP',                // téléphone → montre : rangée du haut : 0 météo horaire, 1 FC + distance, 2 calories + pas, 3 soleil, 4 tendance 3 jours, 5 FC + calories, 6 FC + pas, 7 distance + calories, 8 pas + distance
   COMP_BOTTOM: 'COMP_BOTTOM'           // téléphone → montre : rangée du bas (mêmes choix)
   // WEATHER_PERIOD (1..4 h) ne sert qu'au téléphone : les libellés d'heure arrivent déjà calculés
@@ -63,14 +64,15 @@ function readSettings() {
     saved: (s.LANGUAGE !== undefined || s.DATE_FORMAT !== undefined || s.TIME_FORMAT !== undefined || s.ICON_STYLE !== undefined || s.GHOST_LEVEL !== undefined || s.FONT_STYLE !== undefined ||
             s.TEMP_UNIT !== undefined || s.RED_RING_LATERAL !== undefined ||
             s.COMPLICATION !== undefined || s.DIST_UNIT !== undefined ||
-            s.WEATHER_PERIOD !== undefined || s.COMP_TOP !== undefined || s.COMP_BOTTOM !== undefined),
+            s.WEATHER_PERIOD !== undefined || s.BATT_STYLE !== undefined || s.COMP_TOP !== undefined || s.COMP_BOTTOM !== undefined),
     // icônes en couleurs par défaut (aussi si ce réglage n'a jamais été enregistré)
     iconColor: (s.ICON_STYLE === undefined || parseInt(s.ICON_STYLE, 10) === 1) ? 1 : 0,
     ghost: Math.max(0, Math.min(2, parseInt(s.GHOST_LEVEL, 10) || 0)),
     fontStyle: Math.max(0, Math.min(7, parseInt(s.FONT_STYLE, 10) || 0)),
     time12: parseInt(s.TIME_FORMAT, 10) === 1 ? 1 : 0,
-    comp: Math.max(0, Math.min(4, parseInt(s.COMPLICATION, 10) || 0)),
+    comp: Math.max(0, Math.min(5, parseInt(s.COMPLICATION, 10) || 0)),
     dist: parseInt(s.DIST_UNIT, 10) === 1 ? 1 : 0,
+    battStyle: parseInt(s.BATT_STYLE, 10) === 1 ? 1 : 0,
     period: Math.max(1, Math.min(4, parseInt(s.WEATHER_PERIOD, 10) || 1)),
     compTop: Math.max(0, Math.min(8, parseInt(s.COMP_TOP, 10) || 0)),
     compBot: Math.max(0, Math.min(8, parseInt(s.COMP_BOTTOM, 10) || 0)),
@@ -95,6 +97,7 @@ function addSettings(msg) {
     msg[K.COMPLICATION] = s.comp;
     msg[K.DIST_UNIT] = s.dist;
     msg[K.RED_RING_LATERAL] = s.redRing;
+    msg[K.BATT_STYLE] = s.battStyle;
     msg[K.COMP_TOP] = s.compTop;
     msg[K.COMP_BOTTOM] = s.compBot;
   }

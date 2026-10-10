@@ -42,6 +42,7 @@ Many thanks to the authors of the projects that provided inspiration and a techn
 * distance walked
 * next sunrise or sunset
 * seconds
+* battery % (monochrome or color)
 
 • Configurable complication (top/bottom):
 * steps
@@ -146,6 +147,7 @@ Un grand merci aux auteurs des projets qui ont servi d'inspiration et de base te
 * distance parcourue
 * prochain lever ou coucher du soleil
 * secondes
+* batterie en % (monochrome ou couleur)
 
 • Complication configurable (haut/bas) :
 * nombre de pas

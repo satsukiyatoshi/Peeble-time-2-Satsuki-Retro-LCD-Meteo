@@ -50,7 +50,9 @@
 // Complication (case à droite de la date) :
 //   0 = nombre de pas ; 1 = fréquence cardiaque ; 2 = distance parcourue ;
 //   3 = prochain lever / coucher du soleil (▲ = lever, ▼ = coucher) ;
-//   4 = secondes (le cadran se met alors à jour chaque seconde : plus de batterie).
+//   4 = secondes (le cadran se met alors à jour chaque seconde : plus de batterie) ;
+//   5 = pourcentage de batterie : chiffres noirs + « % » + logo de pile (rouge sous 10 %, ou vert / jaune / rouge
+//       si les segments de la pile sont réglés en « couleur »).
 // La distance occupe les 4 chiffres de gauche de la case, suivie d'un grand K (kilomètres) ou M (miles) à la place du 5e chiffre.
 #define CFG_COMPLICATION       0
 
@@ -75,6 +77,13 @@
 #define CFG_COMP_BOTTOM        0
 // Calories affichées : 0 = actives seulement ; 1 = actives + au repos.
 #define CFG_CALORIES_TOTAL     0
+// Segments de la pile : 0 = monochrome (segments comme CFG_COLOR_FG, rouges sous 10 %) ;
+// 1 = couleur (vert à partir de 50 %, jaune de 10 à 49 %, rouge sous 10 %). Valeur par défaut,
+// modifiable depuis la page de réglages du téléphone. En charge, les segments clignotent à la seconde.
+#define CFG_BATT_COLOR         0
+#define CFG_COLOR_BATT_GREEN   0x00AA00
+#define CFG_COLOR_BATT_YELLOW  0xFFAA00  // jaune « orangé » : le jaune pur est illisible sur fond blanc
+#define CFG_COLOR_BATT_RED     0xFF0000
 
 // ── Mode test des logos météo (émulateur) ─────────────────────────────────
 // 0 = normal (vraies prévisions) ; 1 = affiche 10 logos de test (les 10 colonnes) ;
