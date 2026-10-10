@@ -12,6 +12,10 @@
 
 ![SatsukiRetroLCD Screenshot](resources/screenshots/pebble_screenshot_2026-10-10_12-24-52.png)
 
+![SatsukiRetroLCD Screenshot](resources/screenshots/pebble_screenshot_2026-10-10_19-47-26.png)
+
+![SatsukiRetroLCD Screenshot](resources/screenshots/pebble_screenshot_2026-10-10_19-25-46.png)
+
 # Satsuki Retro LCD Meteo
 
 A retro digital LCD-inspired watchface designed for the Pebble Time 2.

@@ -82,7 +82,7 @@
 // modifiable depuis la page de réglages du téléphone. En charge, les segments clignotent à la seconde.
 #define CFG_BATT_COLOR         0
 #define CFG_COLOR_BATT_GREEN   0x00AA00
-#define CFG_COLOR_BATT_YELLOW  0xFFAA00  // jaune « orangé » : le jaune pur est illisible sur fond blanc
+#define CFG_COLOR_BATT_YELLOW  0xFFFF00  // même jaune que le reste de la montre (soleil, éclair, libellés)
 #define CFG_COLOR_BATT_RED     0xFF0000
 
 // ── Mode test des logos météo (émulateur) ─────────────────────────────────
