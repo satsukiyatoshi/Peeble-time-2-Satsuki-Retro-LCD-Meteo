@@ -41,7 +41,8 @@ var K = {
   ICON_STYLE: 'ICON_STYLE',            // téléphone → montre : 0 = monochrome, 1 = couleurs
   GHOST_LEVEL: 'GHOST_LEVEL',          // téléphone → montre : 0 = défaut, 1 = léger, 2 = désactivé
   FONT_STYLE: 'FONT_STYLE',            // téléphone → montre : 0..3 = 7 segments (Classic, Classic Mini, Modern, Modern Mini), 4..7 = 14 segments (mêmes), 8 = 7 segments spécial D
-  COMPLICATION: 'COMPLICATION',        // téléphone → montre : 0 pas, 1 FC, 2 distance, 3 soleil, 4 secondes, 5 batterie
+  COMPLICATION: 'COMPLICATION',        // téléphone → montre : 0 pas, 1 FC, 2 distance, 3 soleil, 4 secondes, 5 batterie, 6 températures min / max
+  TEMP_UNIT: 'TEMP_UNIT',              // téléphone → montre : 0 = °C, 1 = °F (lettre de la complication températures)
   DIST_UNIT: 'DIST_UNIT',              // téléphone → montre : 0 = kilomètres, 1 = miles
   RED_RING_LATERAL: 'RED_RING_LATERAL', // téléphone → montre : 0 = bandes latérales masquées, 1 = affichées
   BATT_STYLE: 'BATT_STYLE',            // téléphone → montre : segments de la pile 0 = monochrome (rouge < 10 %), 1 = couleur
@@ -70,7 +71,7 @@ function readSettings() {
     ghost: Math.max(0, Math.min(2, parseInt(s.GHOST_LEVEL, 10) || 0)),
     fontStyle: Math.max(0, Math.min(8, parseInt(s.FONT_STYLE, 10) || 0)),
     time12: parseInt(s.TIME_FORMAT, 10) === 1 ? 1 : 0,
-    comp: Math.max(0, Math.min(5, parseInt(s.COMPLICATION, 10) || 0)),
+    comp: Math.max(0, Math.min(6, parseInt(s.COMPLICATION, 10) || 0)),
     dist: parseInt(s.DIST_UNIT, 10) === 1 ? 1 : 0,
     battStyle: parseInt(s.BATT_STYLE, 10) === 1 ? 1 : 0,
     period: Math.max(1, Math.min(4, parseInt(s.WEATHER_PERIOD, 10) || 1)),
@@ -96,6 +97,7 @@ function addSettings(msg) {
     msg[K.FONT_STYLE] = s.fontStyle;
     msg[K.COMPLICATION] = s.comp;
     msg[K.DIST_UNIT] = s.dist;
+    msg[K.TEMP_UNIT] = s.fahrenheit ? 1 : 0;
     msg[K.RED_RING_LATERAL] = s.redRing;
     msg[K.BATT_STYLE] = s.battStyle;
     msg[K.COMP_TOP] = s.compTop;

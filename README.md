@@ -59,6 +59,7 @@ Many thanks to the authors of the projects that provided inspiration and a techn
 * next sunrise or sunset
 * seconds
 * battery % (monochrome or color)
+* Min/Max current's day temperatures
 
 • Configurable complication (top/bottom):
 * steps
@@ -160,6 +161,7 @@ Un grand merci aux auteurs des projets qui ont servi d'inspiration et de base te
 * prochain lever ou coucher du soleil
 * secondes
 * batterie en % (monochrome ou couleur)
+* températures min/max du jour
 
 • Complication configurable (haut/bas) :
 * nombre de pas

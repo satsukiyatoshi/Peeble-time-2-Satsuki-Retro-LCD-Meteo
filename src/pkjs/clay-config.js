@@ -106,7 +106,8 @@ module.exports = [
           { "label": "Distance parcourue / Distance walked",        "value": "2" },
           { "label": "Lever / coucher du soleil / Sunrise / sunset", "value": "3" },
           { "label": "Secondes / Seconds",                          "value": "4" },
-          { "label": "Pourcentage de batterie / Battery percentage", "value": "5" }
+          { "label": "Pourcentage de batterie / Battery percentage", "value": "5" },
+          { "label": "Températures min / max du jour / Today's min / max temperature", "value": "6" }
         ]
       },
       {

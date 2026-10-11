@@ -84,7 +84,8 @@
 //   COMP_TOP, COMP_BOTTOM    complications des rangées de prévisions du haut / du bas
 //   DAILY_0..5               tendance du jour J … J+5 : bits 0-6 code météo WMO (127 = inconnu),
 //                            8-15 température max + 128, 16-23 min + 128, 24-28 jour du mois, 29-31 jour de semaine (0 = dimanche)
-//   TEMP_UNIT, WEATHER_PERIOD  réglages Clay utilisés seulement par le téléphone
+//   TEMP_UNIT                0 = °C, 1 = °F (lettre C / F de la complication températures)
+//   WEATHER_PERIOD           réglage Clay utilisé seulement par le téléphone
 // ATTENTION : dans le SDK, les MESSAGE_KEY_xxx sont des variables (extern), pas des
 // constantes : on ne peut pas les mettre dans un initialiseur statique. Le tableau
 // est donc rempli au démarrage par init_forecast_keys().
@@ -131,6 +132,7 @@ static void init_forecast_keys(void) {
 #define PERSIST_COMP_TOP  10
 #define PERSIST_COMP_BOT  11
 #define PERSIST_BATT      12
+#define PERSIST_TEMP_F    13
 
 // ── Prévisions horaires : 2 lignes de 5 colonnes (H+1 … H+10) ────────────
 // Entier reçu : bits 0-6 code météo WMO (127 = inconnu), bit 7 jour,
@@ -188,8 +190,9 @@ static int  s_font_style   = CFG_FONT_STYLE;   // 0..3 = 7 segments (Classic, Cl
 static int  s_ghost    = CFG_GHOST_LEVEL; // segments éteints : 0 = normal, 1 = léger, 2 = désactivés
 #define GHOST_ON (s_ghost != 2)
 static int  s_icon_col = CFG_ICON_COLOR; // 0 = icônes monochromes, 1 = icônes en couleurs
-static int  s_comp     = CFG_COMPLICATION; // 0 pas, 1 FC, 2 distance, 3 soleil, 4 secondes, 5 batterie
+static int  s_comp     = CFG_COMPLICATION; // 0 pas, 1 FC, 2 distance, 3 soleil, 4 secondes, 5 batterie, 6 températures min / max du jour
 static int  s_dist_mi  = CFG_DIST_MILES; // 0 = kilomètres, 1 = miles
+static int  s_temp_f   = 0;              // unité des températures : 0 = °C, 1 = °F (envoyée par le téléphone)
 static int  r_r_sides  = CFG_RED_RING_LATERAL; // 0 masqué, 1 affiché
 static int  s_comp_top = CFG_COMP_TOP;      // rangée de prévisions du haut : 0 météo horaire, 1 FC + distance, 2 calories + pas, 3 soleil, 4 tendance 3 jours
 static int  s_comp_bot = CFG_COMP_BOTTOM;   // rangée du bas (mêmes choix)
@@ -264,6 +267,36 @@ static bool fc_slot_valid(int i) {
 // Petite lettre « A », « P » (indicateur matin / après-midi du format 12 h),
 // « K » ou « M » (unité de la complication distance) : matrice 3×5, points de
 // 2×2 px, soit 6×10 px.
+// Lettre C ou F de l'unité de température. Plus haute que K / M (+2 px) et F aux barres plus courtes.
+//  grande : 10×16 px (cellules de 2 px, 5×8) ; petite : 6×12 px (3×6).
+static void draw_temp_unit(GContext *ctx, int x, int y, char ch, bool big, GColor color) {
+  graphics_context_set_fill_color(ctx, color);
+  if (big) {
+    static const uint8_t GF[8] = {30, 16, 16, 28, 16, 16, 16, 16};   // F : 11110 10000 10000 11100 10000 10000 10000 10000
+    if (ch == 'F') {
+      for (int row = 0; row < 8; row++)
+        for (int col = 0; col < 5; col++)
+          if (GF[row] & (16 >> col))
+            graphics_fill_rect(ctx, GRect(x + col * 2, y + row * 2, 2, 2), 0, GCornerNone);
+    } else {   // C : 9 px de large (10 avant) ; dessiné en rectangles
+      graphics_fill_rect(ctx, GRect(x,     y + 2,  2, 12), 0, GCornerNone);   // montant gauche
+      graphics_fill_rect(ctx, GRect(x + 2, y,      5, 2),  0, GCornerNone);   // barre du haut
+      graphics_fill_rect(ctx, GRect(x + 2, y + 14, 5, 2),  0, GCornerNone);   // barre du bas
+      graphics_fill_rect(ctx, GRect(x + 7, y + 2,  2, 2),  0, GCornerNone);   // bec du haut
+      graphics_fill_rect(ctx, GRect(x + 7, y + 12, 2, 2),  0, GCornerNone);   // bec du bas
+    }
+  } else if (ch == 'F') {
+    graphics_fill_rect(ctx, GRect(x, y, 2, 12), 0, GCornerNone);        // montant
+    graphics_fill_rect(ctx, GRect(x + 2, y, 2, 2), 0, GCornerNone);     // barre du haut : 4 px (6 avant)
+    graphics_fill_rect(ctx, GRect(x + 2, y + 4, 1, 2), 0, GCornerNone); // barre du milieu : 3 px (4 avant)
+  } else {
+    // C : 5 px de large (6 avant)
+    graphics_fill_rect(ctx, GRect(x,     y + 2,  2, 8), 0, GCornerNone);   // montant gauche
+    graphics_fill_rect(ctx, GRect(x + 2, y,      3, 2), 0, GCornerNone);   // barre du haut
+    graphics_fill_rect(ctx, GRect(x + 2, y + 10, 3, 2), 0, GCornerNone);   // barre du bas
+  }
+}
+
 static void draw_ind_letter(GContext *ctx, int x, int y, char ch, GColor color) {
   static const uint8_t GP[5] = {7, 5, 7, 4, 4};   // P : 111 101 111 100 100
   static const uint8_t GA[5] = {2, 5, 7, 5, 5};   // A : 010 101 111 101 101
@@ -1305,6 +1338,14 @@ static void draw_comp_row(GContext *ctx, int kind, int x0, int group_w, int y0, 
   draw_stat_cell(ctx, mid,        half, y0, ib, cb, b, ub, f_val, f_tiny, f_lbl);
 }
 
+// Température sur 2 caractères pour la complication min / max : « 05 », « 12 », « -5 ».
+// Au-delà de 99 (°F) on garde les 2 derniers chiffres (104 → 04). Sous -9 : 3 caractères (« -15 »).
+static void fmt_temp2(int v, char *buf, size_t n) {
+  if (v < -99) v = -99;
+  if (v >= 0) snprintf(buf, n, "%02d", v % 100);
+  else        snprintf(buf, n, "%d", v);
+}
+
 static void canvas_update_proc(Layer *layer, GContext *ctx) {
   GRect bounds = layer_get_bounds(layer);
   int W = bounds.size.w;
@@ -1504,6 +1545,37 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
         ghost = "88:88";
         break;
       }
+      case 6: { // températures min / max du jour courant : « 12:26 » + lettre C ou F
+        int tmn = 0, tmx = 0;
+        bool have = false;
+        for (int i = 0; i < 6; i++) {
+          if (s_daily[i].code != FC_UNKNOWN && s_daily[i].dom == tnow->tm_mday) {
+            tmn = s_daily[i].tmin; tmx = s_daily[i].tmax; have = true; break;
+          }
+        }
+        if (!have) {
+          snprintf(cstr, sizeof(cstr), "--:--");
+          ghost = "88:88";
+          unit_ch = s_temp_f ? 'F' : 'C';
+          break;
+        }
+        char ta[8], tb[8];
+        fmt_temp2(tmn, ta, sizeof(ta));
+        fmt_temp2(tmx, tb, sizeof(tb));
+        int n_gl = (int)(strlen(ta) + strlen(tb));
+        if (n_gl > 5) {                              // min ET max sous -9 : max réduit à 2 caractères
+          memmove(tb, tb + strlen(tb) - 2, 3);
+          n_gl = (int)(strlen(ta) + strlen(tb));
+        }
+        snprintf(cstr, sizeof(cstr), "%s:%s", ta, tb);
+        static char gh[12];                          // segments éteints : même forme que le texte
+        size_t gi = 0;
+        for (; cstr[gi] && gi + 1 < sizeof(gh); gi++) gh[gi] = (cstr[gi] == ':') ? ':' : '8';
+        gh[gi] = '\0';
+        ghost = gh;
+        if (n_gl <= 4) unit_ch = s_temp_f ? 'F' : 'C';   // 5 caractères (valeur ≤ -10) : plus de place pour la lettre
+        break;
+      }
       case 5:   // pourcentage de batterie : 3 chiffres de gauche + « % » + logo de pile
         batt_logo = 1;
         snprintf(cstr, sizeof(cstr), "%d", s_batt_pct);
@@ -1553,7 +1625,10 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
 
     // Distance : K ou M dans la cellule du 5e chiffre. Grande lettre 5×7 (10×14 px)
     // si la place le permet, sinon la petite 3×5 (6×10 px).
-    if (unit_ch) {
+    if (unit_ch == 'C' || unit_ch == 'F') {          // température : décalée de 2 px vers la droite, 2 px plus haute
+      if (unit_gap >= 11) draw_temp_unit(ctx, unit_x - 11, y_dr + (dr_h - 16) / 2 + 1, unit_ch, true, col_fg);
+      else                draw_temp_unit(ctx, unit_x - 7,  y_dr + (dr_h - 12) / 2 + 1, unit_ch, false, col_fg);
+    } else if (unit_ch) {
       if (unit_gap >= 11)
         draw_big_letter(ctx, unit_x - 13, y_dr + (dr_h - 14) / 2 + 1, unit_ch, col_fg);
       else
@@ -1972,7 +2047,7 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
   }
   if ((t = dict_find(iter, MESSAGE_KEY_COMPLICATION))) {
     s_comp = (int)t->value->int32;
-    if (s_comp < 0 || s_comp > 5) s_comp = 0;
+    if (s_comp < 0 || s_comp > 6) s_comp = 0;
     persist_write_int(PERSIST_COMP, s_comp);
     update_tick_subscription();   // secondes : tick à la seconde, sinon à la minute
   }
@@ -1984,6 +2059,10 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
     r_r_sides = (t->value->int32 == 1) ? 1 : 0;
     persist_write_int(PERSIST_RED_RING, r_r_sides);
     if (s_canvas) layer_mark_dirty(s_canvas);
+  }
+  if ((t = dict_find(iter, MESSAGE_KEY_TEMP_UNIT))) {
+    s_temp_f = (t->value->int32 == 1) ? 1 : 0;
+    persist_write_int(PERSIST_TEMP_F, s_temp_f);
   }
   if ((t = dict_find(iter, MESSAGE_KEY_BATT_STYLE))) {
     s_batt_color = (t->value->int32 == 1) ? 1 : 0;
@@ -2136,8 +2215,9 @@ static void load_settings(void) {
   if (s_font_style < 0 || s_font_style > 8) s_font_style = CFG_FONT_STYLE;
   if (persist_exists(PERSIST_COMP))     s_comp     = persist_read_int(PERSIST_COMP);
   if (persist_exists(PERSIST_DIST_MI))  s_dist_mi  = (persist_read_int(PERSIST_DIST_MI) == 1) ? 1 : 0;
-  if (s_comp < 0 || s_comp > 5) s_comp = CFG_COMPLICATION;
+  if (s_comp < 0 || s_comp > 6) s_comp = CFG_COMPLICATION;
   if (persist_exists(PERSIST_RED_RING)) r_r_sides = (persist_read_int(PERSIST_RED_RING) == 1) ? 1 : 0;
+  if (persist_exists(PERSIST_TEMP_F)) s_temp_f = (persist_read_int(PERSIST_TEMP_F) == 1) ? 1 : 0;
   if (persist_exists(PERSIST_BATT)) s_batt_color = (persist_read_int(PERSIST_BATT) == 1) ? 1 : 0;
   if (persist_exists(PERSIST_COMP_TOP)) s_comp_top = persist_read_int(PERSIST_COMP_TOP);
   if (s_comp_top < 0 || s_comp_top >= CK_COUNT) s_comp_top = CFG_COMP_TOP;

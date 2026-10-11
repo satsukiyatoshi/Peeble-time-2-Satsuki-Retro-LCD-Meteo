@@ -51,6 +51,7 @@
 //   0 = nombre de pas ; 1 = fréquence cardiaque ; 2 = distance parcourue ;
 //   3 = prochain lever / coucher du soleil (▲ = lever, ▼ = coucher) ;
 //   4 = secondes (le cadran se met alors à jour chaque seconde : plus de batterie) ;
+//   6 = températures min / max du jour (« 12:26 » + C ou F ; au-delà de 99 °F on garde 2 chiffres : 104 → 04) ;
 //   5 = pourcentage de batterie : chiffres noirs + « % » + logo de pile (rouge sous 10 %, ou vert / jaune / rouge
 //       si les segments de la pile sont réglés en « couleur »).
 // La distance occupe les 4 chiffres de gauche de la case, suivie d'un grand K (kilomètres) ou M (miles) à la place du 5e chiffre.
