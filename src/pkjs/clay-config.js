@@ -91,7 +91,8 @@ module.exports = [
           { "label": "14 segments : Classic",                   "value": "4" },
           { "label": "14 segments : Classic Mini",              "value": "5" },
           { "label": "14 segments : Modern",                    "value": "6" },
-          { "label": "14 segments : Modern Mini",               "value": "7" }
+          { "label": "14 segments : Modern Mini",               "value": "7" },
+          { "label": "7 segments : spécial D / special D",      "value": "8" }
         ]
       },
       {

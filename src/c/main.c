@@ -47,7 +47,7 @@
 #define CFG_COLOR_BATT_GREEN  0x00AA00
 #endif
 #ifndef CFG_COLOR_BATT_YELLOW
-#define CFG_COLOR_BATT_YELLOW 0xFFFF00
+#define CFG_COLOR_BATT_YELLOW 0xFFAA00
 #endif
 #ifndef CFG_COLOR_BATT_RED
 #define CFG_COLOR_BATT_RED    0xFF0000
@@ -184,7 +184,7 @@ static time_t   s_last_req_ts = 0;   // dernière demande de rafraîchissement
 static int  s_lang     = CFG_LANGUAGE;   // 0 = français, 1 = English
 static int  s_date_mdy = CFG_DATE_MDY;   // 0 = JJ-MM, 1 = MM-JJ
 static int  s_time12   = CFG_TIME_12H;    // 0 = 24 h, 1 = 12 h (indicateur A/P)
-static int  s_font_style   = CFG_FONT_STYLE;   // 0..3 = 7 segments (Classic, Classic Mini, Modern, Modern Mini), 4..7 = 14 segments (mêmes)
+static int  s_font_style   = CFG_FONT_STYLE;   // 0..3 = 7 segments (Classic, Classic Mini, Modern, Modern Mini), 4..7 = 14 segments (mêmes), 8 = 7 segments spécial D
 static int  s_ghost    = CFG_GHOST_LEVEL; // segments éteints : 0 = normal, 1 = léger, 2 = désactivés
 #define GHOST_ON (s_ghost != 2)
 static int  s_icon_col = CFG_ICON_COLOR; // 0 = icônes monochromes, 1 = icônes en couleurs
@@ -325,11 +325,11 @@ static void draw_big_letter(GContext *ctx, int x, int y, char ch, GColor color) 
 #define GHOST14_CHAR '~'
 
 // Texte des segments éteints : les « 8 » sont remplacés par GHOST14_CHAR avec les
-// polices 14 segments (styles 4 à 7) ; sans effet avec les polices 7 segments.
+// polices 14 segments (styles 4 à 7) ; sans effet avec les polices 7 segments (dont le style 8).
 static void ghost_text(const char *in, char *out, size_t n) {
   size_t i = 0;
   for (; in[i] && i + 1 < n; i++) {
-    out[i] = (in[i] == '8' && s_font_style >= 4) ? GHOST14_CHAR : in[i];
+    out[i] = (in[i] == '8' && s_font_style >= 4 && s_font_style <= 7) ? GHOST14_CHAR : in[i];
   }
   out[i] = '\0';
 }
@@ -1965,7 +1965,7 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
     int old_st = s_font_style;
     if ((t = dict_find(iter, MESSAGE_KEY_FONT_STYLE))) {
       s_font_style = (int)t->value->int32;
-      if (s_font_style < 0 || s_font_style > 7) s_font_style = 0;
+      if (s_font_style < 0 || s_font_style > 8) s_font_style = 0;
       persist_write_int(PERSIST_FONT_ST, s_font_style);
     }
     if (old_st != s_font_style && s_canvas) load_dseg_fonts();
@@ -2041,7 +2041,7 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
 
 // ── Polices DSEG : 8 styles × (heure 48 px gras, 20 px gras, 20 px normal) ──
 // Index = style : 0..3 = 7 segments (Classic, Classic Mini, Modern, Modern Mini),
-// 4..7 = 14 segments (Classic, Classic Mini, Modern, Modern Mini).
+// 4..7 = 14 segments (Classic, Classic Mini, Modern, Modern Mini) ; 8 = 7 segments spécial D.
 // Seules les polices du style choisi sont chargées (économie de RAM).
 // ATTENTION : la taille de la police est lue dans le NOM de la ressource (package.json) :
 // il ne doit contenir qu'un seul nombre, à la fin (…_TIME48, …_BOLD20). Un nom comme
@@ -2049,23 +2049,26 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
 // donc le code « F » (FC, FCM, FM, FMM) et non « 14 ».
 // Date et chiffres allumés de la complication : 20 px gras ; chiffres éteints
 // (fantômes) de la complication : 20 px normal.
-static const uint32_t RES_TIME48[8] = {
+static const uint32_t RES_TIME48[9] = {
   RESOURCE_ID_FONT_DSEG_C_TIME48, RESOURCE_ID_FONT_DSEG_CM_TIME48,
   RESOURCE_ID_FONT_DSEG_M_TIME48, RESOURCE_ID_FONT_DSEG_MM_TIME48,
   RESOURCE_ID_FONT_DSEG_FC_TIME48, RESOURCE_ID_FONT_DSEG_FCM_TIME48,
-  RESOURCE_ID_FONT_DSEG_FM_TIME48, RESOURCE_ID_FONT_DSEG_FMM_TIME48
+  RESOURCE_ID_FONT_DSEG_FM_TIME48, RESOURCE_ID_FONT_DSEG_FMM_TIME48,
+  RESOURCE_ID_FONT_DSEG_SD_TIME48          // 8 = 7 segments spécial D (Seg7Custom-Bold)
 };
-static const uint32_t RES_F20_BOLD[8] = {
+static const uint32_t RES_F20_BOLD[9] = {
   RESOURCE_ID_FONT_DSEG_C_BOLD20, RESOURCE_ID_FONT_DSEG_CM_BOLD20,
   RESOURCE_ID_FONT_DSEG_M_BOLD20, RESOURCE_ID_FONT_DSEG_MM_BOLD20,
   RESOURCE_ID_FONT_DSEG_FC_BOLD20, RESOURCE_ID_FONT_DSEG_FCM_BOLD20,
-  RESOURCE_ID_FONT_DSEG_FM_BOLD20, RESOURCE_ID_FONT_DSEG_FMM_BOLD20
+  RESOURCE_ID_FONT_DSEG_FM_BOLD20, RESOURCE_ID_FONT_DSEG_FMM_BOLD20,
+  RESOURCE_ID_FONT_DSEG_SD_BOLD20
 };
-static const uint32_t RES_F20_REG[8] = {
+static const uint32_t RES_F20_REG[9] = {
   RESOURCE_ID_FONT_DSEG_C_REG20, RESOURCE_ID_FONT_DSEG_CM_REG20,
   RESOURCE_ID_FONT_DSEG_M_REG20, RESOURCE_ID_FONT_DSEG_MM_REG20,
   RESOURCE_ID_FONT_DSEG_FC_REG20, RESOURCE_ID_FONT_DSEG_FCM_REG20,
-  RESOURCE_ID_FONT_DSEG_FM_REG20, RESOURCE_ID_FONT_DSEG_FMM_REG20
+  RESOURCE_ID_FONT_DSEG_FM_REG20, RESOURCE_ID_FONT_DSEG_FMM_REG20,
+  RESOURCE_ID_FONT_DSEG_SD_REG20           // une seule graisse (Bold) fournie : utilisée aussi pour « normal »
 };
 
 static void unload_dseg_fonts(void) {
@@ -2077,7 +2080,7 @@ static void unload_dseg_fonts(void) {
 
 static void load_dseg_fonts(void) {
   unload_dseg_fonts();
-  int st = (s_font_style >= 0 && s_font_style <= 7) ? s_font_style : 0;
+  int st = (s_font_style >= 0 && s_font_style <= 8) ? s_font_style : 0;
   s_font_d14_time = fonts_load_custom_font(resource_get_handle(RES_TIME48[st]));
   s_font_d7_date  = fonts_load_custom_font(resource_get_handle(RES_F20_BOLD[st]));
   s_font_d7_comp  = s_font_d7_date;
@@ -2130,7 +2133,7 @@ static void load_settings(void) {
   if (persist_exists(PERSIST_GHOST))    s_ghost    = persist_read_int(PERSIST_GHOST);
   if (s_ghost < 0 || s_ghost > 2) s_ghost = CFG_GHOST_LEVEL;
   if (persist_exists(PERSIST_FONT_ST))  s_font_style   = persist_read_int(PERSIST_FONT_ST);
-  if (s_font_style < 0 || s_font_style > 7) s_font_style = CFG_FONT_STYLE;
+  if (s_font_style < 0 || s_font_style > 8) s_font_style = CFG_FONT_STYLE;
   if (persist_exists(PERSIST_COMP))     s_comp     = persist_read_int(PERSIST_COMP);
   if (persist_exists(PERSIST_DIST_MI))  s_dist_mi  = (persist_read_int(PERSIST_DIST_MI) == 1) ? 1 : 0;
   if (s_comp < 0 || s_comp > 5) s_comp = CFG_COMPLICATION;

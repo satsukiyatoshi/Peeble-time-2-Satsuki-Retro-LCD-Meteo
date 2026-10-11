@@ -1,5 +1,7 @@
 ![SatsukiRetroLCD Screenshot](resources/screenshots/pebble_screenshot_2026-10-09_13-59-41.png)
 
+![SatsukiRetroLCD Screenshot](resources/screenshots/pebble_screenshot_2026-10-11_09-24-16.png)
+
 ![SatsukiRetroLCD Screenshot](resources/screenshots/pebble_screenshot_2026-10-09_13-57-28.png)
 
 ![SatsukiRetroLCD Screenshot](resources/screenshots/pebble_screenshot_2026-10-09_14-01-00.png)

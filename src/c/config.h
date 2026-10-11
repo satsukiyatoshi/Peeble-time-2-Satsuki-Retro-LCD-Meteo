@@ -44,7 +44,7 @@
 // la date et la complication :
 //   0 = 7 segments Classic ; 1 = 7 segments Classic Mini ; 2 = 7 segments Modern ;
 //   3 = 7 segments Modern Mini ; 4 = 14 segments Classic ; 5 = 14 segments Classic Mini ;
-//   6 = 14 segments Modern ; 7 = 14 segments Modern Mini.
+//   6 = 14 segments Modern ; 7 = 14 segments Modern Mini ; 8 = 7 segments spécial D (Seg7Custom-Bold).
 #define CFG_FONT_STYLE         0
 
 // Complication (case à droite de la date) :
@@ -82,7 +82,7 @@
 // modifiable depuis la page de réglages du téléphone. En charge, les segments clignotent à la seconde.
 #define CFG_BATT_COLOR         0
 #define CFG_COLOR_BATT_GREEN   0x00AA00
-#define CFG_COLOR_BATT_YELLOW  0xFFFF00  // même jaune que le reste de la montre (soleil, éclair, libellés)
+#define CFG_COLOR_BATT_YELLOW  0xFFAA00  // orange (le jaune pur est trop peu visible sur le fond clair)
 #define CFG_COLOR_BATT_RED     0xFF0000
 
 // ── Mode test des logos météo (émulateur) ─────────────────────────────────

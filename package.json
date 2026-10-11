@@ -1,7 +1,7 @@
 {
   "name": "satsukiretrolcdmeteo",
   "author": "Satsuki",
-  "version": "1.1.7",
+  "version": "1.2.0",
   "keywords": [
     "pebble-app"
   ],
@@ -193,6 +193,27 @@
           "name": "FONT_DSEG_FMM_REG20",
           "file": "fonts/DSEG14ModernMini-Regular.ttf",
           "characterRegex": "[0-9. +:~-]",
+          "size": 20
+        },
+        {
+          "type": "font",
+          "name": "FONT_DSEG_SD_TIME48",
+          "file": "fonts/Seg7Custom-Bold.ttf",
+          "characterRegex": "[0-9:. -]",
+          "size": 48
+        },
+        {
+          "type": "font",
+          "name": "FONT_DSEG_SD_BOLD20",
+          "file": "fonts/Seg7Custom-Bold.ttf",
+          "characterRegex": "[0-9. +:-]",
+          "size": 20
+        },
+        {
+          "type": "font",
+          "name": "FONT_DSEG_SD_REG20",
+          "file": "fonts/Seg7Custom-Bold.ttf",
+          "characterRegex": "[0-9. +:-]",
           "size": 20
         },
         {
