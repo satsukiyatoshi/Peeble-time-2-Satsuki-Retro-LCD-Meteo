@@ -18,6 +18,10 @@
 
 ![SatsukiRetroLCD Screenshot](resources/screenshots/pebble_screenshot_2026-10-10_19-25-46.png)
 
+![SatsukiRetroLCD Screenshot](resources/screenshots/pebble_screenshot_2026-10-11_17-53-59.png)
+
+![SatsukiRetroLCD Screenshot](resources/screenshots/pebble_screenshot_2026-10-11_17-29-01.png)
+
 # Satsuki Retro LCD Meteo
 
 A retro digital LCD-inspired watchface designed for the Pebble Time 2.
@@ -60,6 +64,10 @@ Many thanks to the authors of the projects that provided inspiration and a techn
 * seconds
 * battery % (monochrome or color)
 * Min/Max current's day temperatures
+* Air humidity
+* Air quality
+* UV index
+* Wind speed
 
 • Configurable complication (top/bottom):
 * steps
@@ -68,6 +76,10 @@ Many thanks to the authors of the projects that provided inspiration and a techn
 * next sunrise or sunset
 * calories
 * weather (periods 1h,2h,3h,4h or 3 days)
+* Air humidity
+* Air quality
+* UV index
+* Wind speed
 
 
 ## Weather
@@ -162,6 +174,10 @@ Un grand merci aux auteurs des projets qui ont servi d'inspiration et de base te
 * secondes
 * batterie en % (monochrome ou couleur)
 * températures min/max du jour
+* Taux d'humidité de l'air
+* Qualité de l'air
+* Indice UV
+* Vitesse du vent
 
 • Complication configurable (haut/bas) :
 * nombre de pas
@@ -170,6 +186,10 @@ Un grand merci aux auteurs des projets qui ont servi d'inspiration et de base te
 * prochain lever ou coucher du soleil
 * calories
 * météo
+* Taux d'humidité de l'air
+* Qualité de l'air
+* Indice UV
+* Vitesse du vent
 
 
 ## Météo
