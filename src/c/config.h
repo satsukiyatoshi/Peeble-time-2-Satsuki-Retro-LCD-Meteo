@@ -44,13 +44,15 @@
 // la date et la complication :
 //   0 = 7 segments Classic ; 1 = 7 segments Classic Mini ; 2 = 7 segments Modern ;
 //   3 = 7 segments Modern Mini ; 4 = 14 segments Classic ; 5 = 14 segments Classic Mini ;
-//   6 = 14 segments Modern ; 7 = 14 segments Modern Mini ; 8 = 7 segments spécial D (Seg7Custom-Bold).
+//   6 = 14 segments Modern ; 7 = 14 segments Modern Mini ; 8 = 7 segments spécial D (Seg7Custom-Bold-48 et -20 : polices bitmap, traits de 7 px à 48 px et de 3 px à 20 px).
 #define CFG_FONT_STYLE         0
 
 // Complication (case à droite de la date) :
 //   0 = nombre de pas ; 1 = fréquence cardiaque ; 2 = distance parcourue ;
 //   3 = prochain lever / coucher du soleil (▲ = lever, ▼ = coucher) ;
 //   4 = secondes (le cadran se met alors à jour chaque seconde : plus de batterie) ;
+//   7 = humidité ; 8 = indice UV ; 9 = qualité de l'air ; 10 = vitesse du vent (km/h ou mph selon l'unité de distance) :
+//       chiffres noirs + icône (noire, rouge si critique ; ou vert / orange / rouge si les segments de la pile sont en « couleur »)
 //   6 = températures min / max du jour (« 12:26 » + C ou F ; au-delà de 99 °F on garde 2 chiffres : 104 → 04) ;
 //   5 = pourcentage de batterie : chiffres noirs + « % » + logo de pile (rouge sous 10 %, ou vert / jaune / rouge
 //       si les segments de la pile sont réglés en « couleur »).
@@ -69,7 +71,8 @@
 //   2 = calories + pas ; 3 = lever + coucher du soleil (prochains) ;
 //   4 = tendance météo sur 3 jours (jour + date, icône de la journée, min / max) ; les deux rangées
 //       en tendance se suivent : 6 jours (J à J+2, puis J+3 à J+5) ;
-//   5 = FC + calories ; 6 = FC + pas ; 7 = distance + calories ; 8 = pas + distance.
+//   5 = FC + calories ; 6 = FC + pas ; 7 = distance + calories ; 8 = pas + distance ;
+//   9 = indice UV + qualité de l'air ; 10 = humidité + vitesse du vent.
 // Si les DEUX rangées sont en météo horaire, elles se suivent (H+1…H+5, puis H+6…H+10) ;
 // si une seule l'est, elle affiche H+1…H+5.
 // La période météo (1, 2, 3 ou 4 h entre deux colonnes) ne se règle que dans la page
@@ -148,3 +151,7 @@
 #define CFG_COLOR_ICON_FLAME   0xFF5500  // flamme (calories)
 #define CFG_COLOR_ICON_STEPS   0x55FF55  // empreintes (pas)
 #define CFG_COLOR_ICON_PIN     0xFFAA00  // repère (distance)
+#define CFG_COLOR_ICON_HUM     0x55AAFF  // goutte (humidité)
+#define CFG_COLOR_ICON_UV      0xFFFF00  // soleil à rayons (indice UV)
+#define CFG_COLOR_ICON_AIR     0xAAAAAA  // nuage (qualité de l'air)
+#define CFG_COLOR_ICON_WIND    0xFFFFFF  // vent

@@ -107,7 +107,11 @@ module.exports = [
           { "label": "Lever / coucher du soleil / Sunrise / sunset", "value": "3" },
           { "label": "Secondes / Seconds",                          "value": "4" },
           { "label": "Pourcentage de batterie / Battery percentage", "value": "5" },
-          { "label": "Températures min / max du jour / Today's min / max temperature", "value": "6" }
+          { "label": "Températures min / max du jour / Today's min / max temperature", "value": "6" },
+          { "label": "Humidité / Humidity",                          "value": "7" },
+          { "label": "Indice UV / UV index",                         "value": "8" },
+          { "label": "Qualité de l'air / Air quality",               "value": "9" },
+          { "label": "Vitesse du vent / Wind speed",                 "value": "10" }
         ]
       },
       {
@@ -133,7 +137,7 @@ module.exports = [
       {
         "type": "select",
         "messageKey": "BATT_STYLE",
-        "label": "Segments de la pile / Battery segments",
+        "label": "Segments de la pile et icônes d'indicateurs / Battery segments & indicator icons",
         "defaultValue": "0",
         "options": [
           { "label": "Monochrome (rouge < 10 %) / Monochrome (red < 10%)",              "value": "0" },
@@ -166,7 +170,9 @@ module.exports = [
           { "label": "Rythme cardiaque + pas / Heart rate + steps",            "value": "6" },
           { "label": "Distance + calories / Distance + calories",              "value": "7" },
           { "label": "Pas + distance / Steps + distance",                      "value": "8" },
-          { "label": "Calories + pas / Calories + steps",                      "value": "2" }
+          { "label": "Calories + pas / Calories + steps",                      "value": "2" },
+          { "label": "Indice UV + qualité de l'air / UV index + air quality", "value": "9" },
+          { "label": "Humidité + vitesse du vent / Humidity + wind speed",     "value": "10" }
         ]
       },
       {
@@ -183,7 +189,9 @@ module.exports = [
           { "label": "Rythme cardiaque + pas / Heart rate + steps",            "value": "6" },
           { "label": "Distance + calories / Distance + calories",              "value": "7" },
           { "label": "Pas + distance / Steps + distance",                      "value": "8" },
-          { "label": "Calories + pas / Calories + steps",                      "value": "2" }
+          { "label": "Calories + pas / Calories + steps",                      "value": "2" },
+          { "label": "Indice UV + qualité de l'air / UV index + air quality", "value": "9" },
+          { "label": "Humidité + vitesse du vent / Humidity + wind speed",     "value": "10" }
         ]
       }
     ]

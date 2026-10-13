@@ -41,12 +41,13 @@ var K = {
   ICON_STYLE: 'ICON_STYLE',            // téléphone → montre : 0 = monochrome, 1 = couleurs
   GHOST_LEVEL: 'GHOST_LEVEL',          // téléphone → montre : 0 = défaut, 1 = léger, 2 = désactivé
   FONT_STYLE: 'FONT_STYLE',            // téléphone → montre : 0..3 = 7 segments (Classic, Classic Mini, Modern, Modern Mini), 4..7 = 14 segments (mêmes), 8 = 7 segments spécial D
-  COMPLICATION: 'COMPLICATION',        // téléphone → montre : 0 pas, 1 FC, 2 distance, 3 soleil, 4 secondes, 5 batterie, 6 températures min / max
+  COMPLICATION: 'COMPLICATION',        // téléphone → montre : 0 pas, 1 FC, 2 distance, 3 soleil, 4 secondes, 5 batterie, 6 températures min / max, 7 humidité, 8 UV, 9 qualité de l'air, 10 vent
+  HUMIDITY: 'HUMIDITY',                // téléphone → montre : humidité %, UV_INDEX ×10, AIR_QUALITY (AQI européen), WIND_SPEED km/h ×10 (-1 = inconnu)
   TEMP_UNIT: 'TEMP_UNIT',              // téléphone → montre : 0 = °C, 1 = °F (lettre de la complication températures)
   DIST_UNIT: 'DIST_UNIT',              // téléphone → montre : 0 = kilomètres, 1 = miles
   RED_RING_LATERAL: 'RED_RING_LATERAL', // téléphone → montre : 0 = bandes latérales masquées, 1 = affichées
   BATT_STYLE: 'BATT_STYLE',            // téléphone → montre : segments de la pile 0 = monochrome (rouge < 10 %), 1 = couleur
-  COMP_TOP: 'COMP_TOP',                // téléphone → montre : rangée du haut : 0 météo horaire, 1 FC + distance, 2 calories + pas, 3 soleil, 4 tendance 3 jours, 5 FC + calories, 6 FC + pas, 7 distance + calories, 8 pas + distance
+  COMP_TOP: 'COMP_TOP',                // téléphone → montre : rangée du haut : 0 météo horaire, 1 FC + distance, 2 calories + pas, 3 soleil, 4 tendance 3 jours, 5 FC + calories, 6 FC + pas, 7 distance + calories, 8 pas + distance, 9 UV + air, 10 humidité + vent
   COMP_BOTTOM: 'COMP_BOTTOM'           // téléphone → montre : rangée du bas (mêmes choix)
   // WEATHER_PERIOD (1..4 h) ne sert qu'au téléphone : les libellés d'heure arrivent déjà calculés
 };
@@ -71,12 +72,12 @@ function readSettings() {
     ghost: Math.max(0, Math.min(2, parseInt(s.GHOST_LEVEL, 10) || 0)),
     fontStyle: Math.max(0, Math.min(8, parseInt(s.FONT_STYLE, 10) || 0)),
     time12: parseInt(s.TIME_FORMAT, 10) === 1 ? 1 : 0,
-    comp: Math.max(0, Math.min(6, parseInt(s.COMPLICATION, 10) || 0)),
+    comp: Math.max(0, Math.min(10, parseInt(s.COMPLICATION, 10) || 0)),
     dist: parseInt(s.DIST_UNIT, 10) === 1 ? 1 : 0,
     battStyle: parseInt(s.BATT_STYLE, 10) === 1 ? 1 : 0,
     period: Math.max(1, Math.min(4, parseInt(s.WEATHER_PERIOD, 10) || 1)),
-    compTop: Math.max(0, Math.min(8, parseInt(s.COMP_TOP, 10) || 0)),
-    compBot: Math.max(0, Math.min(8, parseInt(s.COMP_BOTTOM, 10) || 0)),
+    compTop: Math.max(0, Math.min(10, parseInt(s.COMP_TOP, 10) || 0)),
+    compBot: Math.max(0, Math.min(10, parseInt(s.COMP_BOTTOM, 10) || 0)),
     redRing: parseInt(s.RED_RING_LATERAL, 10) === 1 ? 1 : 0,
     lang: parseInt(s.LANGUAGE, 10) === 1 ? 1 : 0,
     date: parseInt(s.DATE_FORMAT, 10) === 1 ? 1 : 0,
@@ -333,6 +334,56 @@ function addDaily(msg, data) {
   }
 }
 
+// Humidité (%), UV (×10), vent (km/h ×10) à l'heure courante ; qualité de l'air (AQI européen) fournie à part.
+// -1 = indisponible.
+function addEnv(msg, data, aqi) {
+  var hr = data.hourly || {};
+  var idx = nearestHour(hr.time || [], Math.floor(Date.now() / 1000));
+  function val(arr, mul) {
+    var v = (idx >= 0 && arr) ? arr[idx] : undefined;
+    return (typeof v === 'number' && isFinite(v)) ? Math.max(0, Math.round(v * mul)) : -1;
+  }
+  msg['HUMIDITY']    = val(hr.relative_humidity_2m, 1);
+  msg['UV_INDEX']    = val(hr.uv_index, 10);
+  msg['WIND_SPEED']  = val(hr.wind_speed_10m, 10);   // km/h (unité par défaut d'Open-Meteo) ; la montre convertit en mph
+  msg['AIR_QUALITY'] = aqi;
+}
+
+// Qualité de l'air : API air-quality d'Open-Meteo (gratuite, sans clé), AQI européen courant.
+// Appelle toujours « callback » (-1 en cas d'échec ou de zone non couverte).
+function fetchAirQuality(lat, lon, callback) {
+  var url = 'https://air-quality-api.open-meteo.com/v1/air-quality?latitude=' + lat.toFixed(3) +
+            '&longitude=' + lon.toFixed(3) + '&current=european_aqi';
+  var req = new XMLHttpRequest();
+  req.open('GET', url, true);
+  req.timeout = 10000;
+  var done = false;
+  var guard = setTimeout(function() {
+    try { req.abort(); } catch (e) {}
+    end(-1);
+  }, 15000);
+  function end(v) {
+    if (done) return;
+    done = true;
+    clearTimeout(guard);
+    callback(v);
+  }
+  req.onload = function() {
+    var v = -1;
+    try {
+      if (req.status === 200) {
+        var d = JSON.parse(req.responseText);
+        var a = d && d.current ? d.current.european_aqi : null;
+        if (typeof a === 'number' && isFinite(a)) v = Math.max(0, Math.round(a));
+      }
+    } catch (e) {}
+    end(v);
+  };
+  req.onerror   = function() { end(-1); };
+  req.ontimeout = function() { end(-1); };
+  try { req.send(); } catch (ex) { end(-1); }
+}
+
 function addSun(msg, data) {
   var d = data.daily || {};
   var sr = d.sunrise || [], ss = d.sunset || [];
@@ -381,7 +432,7 @@ function requestForecast(lat, lon) {
   var unit = readSettings().fahrenheit ? 'fahrenheit' : 'celsius';
   var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat.toFixed(3) +
             '&longitude=' + lon.toFixed(3) +
-            '&hourly=temperature_2m,weather_code,is_day,precipitation' +
+            '&hourly=temperature_2m,weather_code,is_day,precipitation,relative_humidity_2m,uv_index,wind_speed_10m' +
             '&daily=sunrise,sunset,weather_code,temperature_2m_max,temperature_2m_min' +
             '&forecast_days=6&timezone=auto&timeformat=unixtime&temperature_unit=' + unit;
 
@@ -410,6 +461,7 @@ function requestForecast(lat, lon) {
 		var slots = buildSlots(data);
 
 		reverseGeocode(lat, lon, function(cityName) {
+		  fetchAirQuality(lat, lon, function(aqi) {
 			
 		  var trend = buildWeatherTrend(data, cityName);
 
@@ -423,6 +475,7 @@ function requestForecast(lat, lon) {
 		  msg[K.WEATHER_TREND] = trend;
 		  addSun(msg, data);
 		  addDaily(msg, data);
+		  addEnv(msg, data, aqi);
 		  addSettings(msg);
 
 		  sendMsg(msg, 'prévisions + tendance');
@@ -434,6 +487,7 @@ function requestForecast(lat, lon) {
 
 		  // Réglages changés pendant cette récupération : on la refait avec les nouveaux
 		  if (pendingRefetch) { pendingRefetch = false; fetchWeather(); }
+		  });
 		});
     } catch (ex) {
       fetchFailed('réponse illisible : ' + ex);

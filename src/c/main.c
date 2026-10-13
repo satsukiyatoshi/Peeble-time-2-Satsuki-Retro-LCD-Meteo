@@ -52,6 +52,19 @@
 #ifndef CFG_COLOR_BATT_RED
 #define CFG_COLOR_BATT_RED    0xFF0000
 #endif
+// Icônes des indicateurs (humidité, UV, qualité de l'air, vent) dans les rangées de prévisions
+#ifndef CFG_COLOR_ICON_HUM
+#define CFG_COLOR_ICON_HUM    0x55AAFF
+#endif
+#ifndef CFG_COLOR_ICON_UV
+#define CFG_COLOR_ICON_UV     0xFFFF00
+#endif
+#ifndef CFG_COLOR_ICON_AIR
+#define CFG_COLOR_ICON_AIR    0xAAAAAA
+#endif
+#ifndef CFG_COLOR_ICON_WIND
+#define CFG_COLOR_ICON_WIND   0xFFFFFF
+#endif
 // Calories : 0 = actives seulement, 1 = actives + au repos
 #ifndef CFG_CALORIES_TOTAL
 #define CFG_CALORIES_TOTAL    0
@@ -84,6 +97,7 @@
 //   COMP_TOP, COMP_BOTTOM    complications des rangées de prévisions du haut / du bas
 //   DAILY_0..5               tendance du jour J … J+5 : bits 0-6 code météo WMO (127 = inconnu),
 //                            8-15 température max + 128, 16-23 min + 128, 24-28 jour du mois, 29-31 jour de semaine (0 = dimanche)
+//   HUMIDITY, UV_INDEX (×10), AIR_QUALITY (AQI européen), WIND_SPEED (km/h ×10) : -1 = indisponible
 //   TEMP_UNIT                0 = °C, 1 = °F (lettre C / F de la complication températures)
 //   WEATHER_PERIOD           réglage Clay utilisé seulement par le téléphone
 // ATTENTION : dans le SDK, les MESSAGE_KEY_xxx sont des variables (extern), pas des
@@ -190,7 +204,7 @@ static int  s_font_style   = CFG_FONT_STYLE;   // 0..3 = 7 segments (Classic, Cl
 static int  s_ghost    = CFG_GHOST_LEVEL; // segments éteints : 0 = normal, 1 = léger, 2 = désactivés
 #define GHOST_ON (s_ghost != 2)
 static int  s_icon_col = CFG_ICON_COLOR; // 0 = icônes monochromes, 1 = icônes en couleurs
-static int  s_comp     = CFG_COMPLICATION; // 0 pas, 1 FC, 2 distance, 3 soleil, 4 secondes, 5 batterie, 6 températures min / max du jour
+static int  s_comp     = CFG_COMPLICATION; // 0 pas, 1 FC, 2 distance, 3 soleil, 4 secondes, 5 batterie, 6 températures min / max du jour, 7 humidité, 8 UV, 9 qualité de l'air, 10 vent
 static int  s_dist_mi  = CFG_DIST_MILES; // 0 = kilomètres, 1 = miles
 static int  s_temp_f   = 0;              // unité des températures : 0 = °C, 1 = °F (envoyée par le téléphone)
 static int  r_r_sides  = CFG_RED_RING_LATERAL; // 0 masqué, 1 affiché
@@ -205,6 +219,11 @@ static int  s_steps           = -1;   // -1 = indisponible (affiche -----)
 static int  s_hr              = 0;   // fréquence cardiaque (0 = pas de mesure)
 static int  s_dist            = -1;  // distance du jour en mètres (-1 = indisponible)
 static int  s_cal             = -1;  // calories du jour (-1 = indisponible)
+// Indicateurs envoyés par le téléphone (-1 = indisponible)
+static int  s_hum             = -1;  // humidité relative, %
+static int  s_uv10            = -1;  // indice UV × 10
+static int  s_aqi             = -1;  // indice de qualité de l'air (AQI européen)
+static int  s_wind10          = -1;  // vitesse du vent en km/h × 10
 
 // Tendance des 6 prochains jours (envoyée par le téléphone ; 3 colonnes par rangée)
 typedef struct {
@@ -398,6 +417,19 @@ static GColor batt_color(int pct, bool on_dark) {
   if (pct < 10) return color_from_int(CFG_COLOR_BATT_RED);
   if (!s_batt_color) return on_dark ? GColorWhite : color_from_int(CFG_COLOR_FG);
   return color_from_int(pct >= 50 ? CFG_COLOR_BATT_GREEN : CFG_COLOR_BATT_YELLOW);
+}
+
+// Vert / orange / rouge selon le niveau (0, 1, 2), quel que soit le réglage (rangées de prévisions)
+static GColor lvl_rgb(int lvl) {
+  return color_from_int(lvl >= 2 ? CFG_COLOR_BATT_RED : (lvl == 1 ? CFG_COLOR_BATT_YELLOW : CFG_COLOR_BATT_GREEN));
+}
+
+// Couleur d'un indicateur selon son niveau (0 bon, 1 moyen, 2 critique ; -1 = inconnu). Même option que la pile :
+// monochrome = couleur normale, rouge si critique ; couleur = vert / orange / rouge.
+static GColor lvl_color(int lvl, GColor normal) {
+  if (lvl < 0) return normal;
+  if (!s_batt_color) return (lvl >= 2) ? color_from_int(CFG_COLOR_BATT_RED) : normal;
+  return color_from_int(lvl >= 2 ? CFG_COLOR_BATT_RED : (lvl == 1 ? CFG_COLOR_BATT_YELLOW : CFG_COLOR_BATT_GREEN));
 }
 
 // ── Bandeau météo : ville + tendance, largeur calculée séparément ─────────
@@ -1028,9 +1060,9 @@ static int weather_icon(int code, bool day) {
 // ── Complications des rangées de prévisions (hors météo horaire) ─────────
 // Valeurs de COMP_TOP / COMP_BOTTOM (gardées compatibles avec la version précédente)
 enum { CK_WEATHER = 0, CK_HR_DIST, CK_CAL_STEPS, CK_SUN, CK_TREND,
-       CK_HR_CAL, CK_HR_STEPS, CK_DIST_CAL, CK_DIST_STEPS, CK_COUNT };
+       CK_HR_CAL, CK_HR_STEPS, CK_DIST_CAL, CK_DIST_STEPS, CK_UV_AQI, CK_HUM_WIND, CK_COUNT };
 // Mesures affichables dans une demi-rangée
-enum { M_HR = 0, M_DIST, M_CAL, M_STEPS };
+enum { M_HR = 0, M_DIST, M_CAL, M_STEPS, M_UV, M_AQI, M_HUM, M_WIND };
 
 // cœur (fréquence cardiaque)
 static const uint16_t WI_HEART[WI_H] = {
@@ -1185,9 +1217,10 @@ static void fmt_dist(char *buf, size_t n) {
 // Une demi-rangée : icône 16×16 à gauche, valeur à droite (police DSEG, ou petite police
 // si elle ne tient pas), petite unité tout à droite. Hauteur de cellule ≈ 32 px.
 #define STAT_CELL_H 32
+#define LVL_SQ 6   // côté du carré de niveau (= carrés du jour de la semaine)
 static void draw_stat_cell(GContext *ctx, int x, int w, int y0, const uint16_t *icon, GColor icol,
                            const char *value, const char *unit,
-                           GFont f_val, GFont f_small, GFont f_unit) {
+                           GFont f_val, GFont f_small, GFont f_unit, int lvl) {
   draw_bits(ctx, icon, x + 3, y0 + (STAT_CELL_H - WI_H) / 2,
             s_icon_col ? icol : color_from_int(CFG_COLOR_FORECAST_ICON));
   // Sans unité (soleil, pas) : un peu plus de place pour la valeur, sinon « 07:42 » ne tient
@@ -1200,11 +1233,19 @@ static void draw_stat_cell(GContext *ctx, int x, int w, int y0, const uint16_t *
     graphics_context_set_text_color(ctx, color_from_int(CFG_COLOR_FORECAST_LABEL));
     graphics_draw_text(ctx, unit, f_unit, GRect(right - unit_w + 2, y0 + 17, unit_w + 2, 11),
                        GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+    // Niveau (UV, air, humidité, vent) : petit carré plein au-dessus du 1er caractère de l'unité, de la taille de ceux du
+    // jour de la semaine (6×6). Icônes « en couleurs » : vert / orange / rouge ; monochrome : rouge
+    // seulement si la valeur est critique, sinon rien.
+    if (lvl >= 0 && (s_icon_col || lvl >= 2)) {
+      int sx = right - unit_w + 2;   // bord gauche aligné sur le 1er caractère de l'unité
+      graphics_context_set_fill_color(ctx, lvl_rgb(lvl));
+      graphics_fill_rect(ctx, GRect(sx, y0 + 11, LVL_SQ, LVL_SQ), 0, GCornerNone);
+    }
   }
   int vx = x + 3 + WI_W + (has_unit ? 3 : 1);
   int vr = right - (unit_w ? unit_w + 3 : 0);
   int avail = vr - vx;
-  graphics_context_set_text_color(ctx, color_from_int(CFG_COLOR_FORECAST_TEMP));
+  graphics_context_set_text_color(ctx, color_from_int(CFG_COLOR_FORECAST_TEMP));   // texte toujours blanc
   if (trend_text_w(value, f_val) <= avail) {
     graphics_draw_text(ctx, value, f_val, GRect(vx, y0 + 6, avail, 24),
                        GTextOverflowModeFill, GTextAlignmentRight, NULL);
@@ -1270,9 +1311,159 @@ static void draw_trend_row(GContext *ctx, int x0, int group_w, int y0, int day_b
   }
 }
 
+// goutte (humidité)
+static const uint16_t WI_HUMID[WI_H] = {
+  0x0180,  // .......##.......
+  0x0180,  // .......##.......
+  0x03C0,  // ......####......
+  0x03C0,  // ......####......
+  0x07E0,  // .....######.....
+  0x07E0,  // .....######.....
+  0x0FF0,  // ....########....
+  0x1FF8,  // ...##########...
+  0x1FF8,  // ...##########...
+  0x3FFC,  // ..############..
+  0x3FFC,  // ..############..
+  0x3FFC,  // ..############..
+  0x3FFC,  // ..############..
+  0x1FF8,  // ...##########...
+  0x0FF0,  // ....########....
+  0x07E0,  // .....######.....
+};
+
+// soleil à rayons (indice UV)
+static const uint16_t WI_UVSUN[WI_H] = {
+  0x0180,  // .......##.......
+  0x0180,  // .......##.......
+  0x1008,  // ...#........#...
+  0x0810,  // ....#......#....
+  0x0000,  // ................
+  0x03C0,  // ......####......
+  0x07E0,  // .....######.....
+  0xCFF3,  // ##..########..##
+  0xCFF3,  // ##..########..##
+  0x07E0,  // .....######.....
+  0x03C0,  // ......####......
+  0x0000,  // ................
+  0x0810,  // ....#......#....
+  0x1008,  // ...#........#...
+  0x0180,  // .......##.......
+  0x0180,  // .......##.......
+};
+
+// nuage + particules (qualité de l'air)
+static const uint16_t WI_AIR[WI_H] = {
+  0x0000,  // ................
+  0x0000,  // ................
+  0x0000,  // ................
+  0x0000,  // ................
+  0x03C0,  // ......####......
+  0x0FF0,  // ....########....
+  0x1FF8,  // ...##########...
+  0x3FFC,  // ..############..
+  0x7FFE,  // .##############.
+  0x7FFE,  // .##############.
+  0x7FFE,  // .##############.
+  0x3FFC,  // ..############..
+  0x0000,  // ................
+  0x1248,  // ...#..#..#..#...
+  0x0924,  // ....#..#..#..#..
+  0x0000,  // ................
+};
+
+// vent (lignes recourbées)
+static const uint16_t WI_WIND[WI_H] = {
+  0x0000,  // ................
+  0x0000,  // ................
+  0x0000,  // ................
+  0x0070,  // .........###....
+  0x0088,  // ........#...#...
+  0x3FE8,  // ..#########.#...
+  0x0000,  // ................
+  0x7FFC,  // .#############..
+  0x0000,  // ................
+  0x0FFC,  // ....##########..
+  0x0004,  // .............#..
+  0x0038,  // ..........###...
+  0x0000,  // ................
+  0x0000,  // ................
+  0x0000,  // ................
+  0x0000,  // ................
+};
+
+// Vitesse du vent affichée : km/h ou mph (selon l'unité de distance choisie) ; reçue en km/h × 10
+static int wind_disp(int w10) { return s_dist_mi ? (w10 * 621 + 5000) / 10000 : (w10 + 5) / 10; }
+
+// Niveaux (0 bon, 1 moyen, 2 critique) pour les couleurs de la case à côté de la date
+static int hum_level(int h)  { return (h < 20 || h > 80) ? 2 : ((h < 30 || h > 60) ? 1 : 0); }   // confort : 30-60 %
+static int uv_level(int u10) { return u10 >= 80 ? 2 : (u10 >= 30 ? 1 : 0); }                      // 3-7 moyen, 8+ critique
+static int aqi_level(int a)  { return a > 80 ? 2 : (a > 40 ? 1 : 0); }                            // AQI européen
+static int wind_level(int w10) { return w10 >= 500 ? 2 : (w10 >= 300 ? 1 : 0); }                  // km/h : 30+ fort, 50+ critique
+
+// « % » en petite lettre 3×5 (6×10 px)
+static void draw_pct_glyph(GContext *ctx, int x, int y, GColor color) {
+  static const uint8_t GPC[5] = {5, 1, 2, 4, 5};   // 101 001 010 100 101
+  graphics_context_set_fill_color(ctx, color);
+  for (int row = 0; row < 5; row++)
+    for (int col = 0; col < 3; col++)
+      if (GPC[row] & (4 >> col))
+        graphics_fill_rect(ctx, GRect(x + col * 2, y + row * 2, 2, 2), 0, GCornerNone);
+}
+
+// Petit texte en lettres 3×5 (cellules de 2 px : 6×10 px par lettre, 2 px entre les lettres) : U V A Q I
+static int small_text_w(const char *str) { int n = (int)strlen(str); return n * 6 + (n > 0 ? (n - 1) * 2 : 0); }
+static void draw_small_text(GContext *ctx, int x, int y, const char *str, GColor color) {
+  graphics_context_set_fill_color(ctx, color);
+  for (; *str; str++, x += 8) {
+    const uint8_t *g;
+    static const uint8_t GU[5] = {5, 5, 5, 5, 7};   // U : 101 101 101 101 111
+    static const uint8_t GV[5] = {5, 5, 5, 5, 2};   // V : 101 101 101 101 010
+    static const uint8_t GA[5] = {2, 5, 7, 5, 5};   // A : 010 101 111 101 101
+    static const uint8_t GQ[5] = {7, 5, 5, 7, 1};   // Q : 111 101 101 111 001
+    static const uint8_t GI[5] = {7, 2, 2, 2, 7};   // I : 111 010 010 010 111
+    switch (*str) {
+      case 'U': g = GU; break;
+      case 'V': g = GV; break;
+      case 'Q': g = GQ; break;
+      case 'I': g = GI; break;
+      default:  g = GA; break;
+    }
+    for (int row = 0; row < 5; row++)
+      for (int col = 0; col < 3; col++)
+        if (g[row] & (4 >> col))
+          graphics_fill_rect(ctx, GRect(x + col * 2, y + row * 2, 2, 2), 0, GCornerNone);
+  }
+}
+
+// Texte « SEC » (complication secondes) : lettres 5×7 réparties sur toute la largeur « w » disponible
+// (cellule de 2 ou 3 px selon la place, espace entre les lettres ajusté pour occuper la largeur)
+static void draw_sec_text(GContext *ctx, int x, int y_mid, int w, GColor color) {
+  static const uint8_t GS[7] = {15, 16, 16, 14, 1, 1, 30};     // S : 01111 10000 10000 01110 00001 00001 11110
+  static const uint8_t GE[7] = {31, 16, 16, 30, 16, 16, 31};   // E : 11111 10000 10000 11110 10000 10000 11111
+  static const uint8_t GCc[7] = {14, 17, 16, 16, 16, 17, 14};  // C : 01110 10001 10000 10000 10000 10001 01110
+  const uint8_t *letters[3] = { GS, GE, GCc };
+  int cell = w / 17;
+  if (cell > 3) cell = 3;
+  if (cell < 1) cell = 1;
+  int gap = (w - 15 * cell) / 2;
+  if (gap < cell) gap = cell;
+  gap -= 2;                                  // lettres resserrées : 2 px de moins entre elles au total
+  x += 2;                                    // …en gardant le « C » en place (« S » et « E » se rapprochent par la droite)
+  int y = y_mid - (7 * cell) / 2 + 3;        // décalé de 3 px vers le bas
+  graphics_context_set_fill_color(ctx, color);
+  for (int l = 0; l < 3; l++) {
+    int lx = x + l * (5 * cell + gap);
+    for (int row = 0; row < 7; row++)
+      for (int col = 0; col < 5; col++)
+        if (letters[l][row] & (16 >> col))
+          graphics_fill_rect(ctx, GRect(lx + col * cell, y + row * cell, cell, cell), 0, GCornerNone);
+  }
+}
+
 // Texte, icône, couleur et unité d'une mesure
-static void metric_info(int m, char *buf, size_t n, const uint16_t **icon, GColor *col, const char **unit) {
+static void metric_info(int m, char *buf, size_t n, const uint16_t **icon, GColor *col, const char **unit, int *lvl) {
   *unit = NULL;
+  *lvl = -1;   // niveau 0 / 1 / 2 (UV, air, humidité, vent) : couleur du carré au-dessus de l'unité
   switch (m) {
     case M_HR:
       if (s_hr > 0) snprintf(buf, n, "%d", s_hr > 999 ? 999 : s_hr); else snprintf(buf, n, "---");
@@ -1285,6 +1476,28 @@ static void metric_info(int m, char *buf, size_t n, const uint16_t **icon, GColo
     case M_CAL:
       if (s_cal >= 0) snprintf(buf, n, "%d", s_cal > 99999 ? 99999 : s_cal); else snprintf(buf, n, "-----");
       *icon = WI_FLAME; *col = color_from_int(CFG_COLOR_ICON_FLAME); *unit = "KCAL";
+      break;
+    case M_UV:
+      if (fc_fresh() && s_uv10 >= 0) {
+        snprintf(buf, n, "%d.%d", (s_uv10 > 999 ? 999 : s_uv10) / 10, (s_uv10 > 999 ? 999 : s_uv10) % 10);
+        *lvl = uv_level(s_uv10);
+      } else snprintf(buf, n, "-.-");
+      *icon = WI_UVSUN; *col = color_from_int(CFG_COLOR_ICON_UV); *unit = "UV";
+      break;
+    case M_AQI:
+      if (fc_fresh() && s_aqi >= 0) { snprintf(buf, n, "%d", s_aqi > 999 ? 999 : s_aqi); *lvl = aqi_level(s_aqi); }
+      else snprintf(buf, n, "---");
+      *icon = WI_AIR; *col = color_from_int(CFG_COLOR_ICON_AIR); *unit = "AQI";
+      break;
+    case M_HUM:
+      if (fc_fresh() && s_hum >= 0) { snprintf(buf, n, "%d", s_hum > 100 ? 100 : s_hum); *lvl = hum_level(s_hum); }
+      else snprintf(buf, n, "---");
+      *icon = WI_HUMID; *col = color_from_int(CFG_COLOR_ICON_HUM); *unit = "%";
+      break;
+    case M_WIND:
+      if (fc_fresh() && s_wind10 >= 0) { int wv = wind_disp(s_wind10); snprintf(buf, n, "%d", wv > 999 ? 999 : wv); *lvl = wind_level(s_wind10); }
+      else snprintf(buf, n, "---");
+      *icon = WI_WIND; *col = color_from_int(CFG_COLOR_ICON_WIND); *unit = s_dist_mi ? "MPH" : "KM/H";
       break;
     default:   // M_STEPS
       if (s_steps >= 0) snprintf(buf, n, "%d", s_steps > 99999 ? 99999 : s_steps); else snprintf(buf, n, "-----");
@@ -1302,6 +1515,8 @@ static bool comp_pair(int kind, int *l, int *r) {
     case CK_HR_STEPS:   *l = M_HR;   *r = M_STEPS; return true;
     case CK_DIST_CAL:   *l = M_DIST; *r = M_CAL;   return true;
     case CK_DIST_STEPS: *l = M_STEPS; *r = M_DIST;  return true;   // pas + distance
+    case CK_UV_AQI:     *l = M_UV;    *r = M_AQI;   return true;
+    case CK_HUM_WIND:   *l = M_HUM;   *r = M_WIND;  return true;
     default:            return false;
   }
 }
@@ -1323,6 +1538,7 @@ static void draw_comp_row(GContext *ctx, int kind, int x0, int group_w, int y0, 
   GColor ca = GColorWhite, cb = GColorWhite;
   const char *ua = NULL, *ub = NULL;
   int ml = M_HR, mr = M_DIST;
+  int la = -1, lb = -1;   // niveaux des textes (-1 = couleur normale)
   if (kind == CK_SUN) {   // prochain lever et prochain coucher
     time_t n = time(NULL);
     fmt_clock(next_event(s_sunrise, n), a, sizeof(a));
@@ -1331,11 +1547,11 @@ static void draw_comp_row(GContext *ctx, int kind, int x0, int group_w, int y0, 
     ib = WI_SUNSET;  cb = color_from_int(CFG_COLOR_ICON_SUN);
   } else {
     if (!comp_pair(kind, &ml, &mr)) { ml = M_HR; mr = M_DIST; }
-    metric_info(ml, a, sizeof(a), &ia, &ca, &ua);
-    metric_info(mr, b, sizeof(b), &ib, &cb, &ub);
+    metric_info(ml, a, sizeof(a), &ia, &ca, &ua, &la);
+    metric_info(mr, b, sizeof(b), &ib, &cb, &ub, &lb);
   }
-  draw_stat_cell(ctx, mid - half, half, y0, ia, ca, a, ua, f_val, f_tiny, f_lbl);
-  draw_stat_cell(ctx, mid,        half, y0, ib, cb, b, ub, f_val, f_tiny, f_lbl);
+  draw_stat_cell(ctx, mid - half, half, y0, ia, ca, a, ua, f_val, f_tiny, f_lbl, la);
+  draw_stat_cell(ctx, mid,        half, y0, ib, cb, b, ub, f_val, f_tiny, f_lbl, lb);
 }
 
 // Température sur 2 caractères pour la complication min / max : « 05 », « 12 », « -5 ».
@@ -1504,6 +1720,12 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
     char unit_ch = 0;   // distance : 'K' (km) ou 'M' (miles), 0 = aucune
     int hr_logo = 0;    // fréquence cardiaque : logo de battement dans les 2 derniers chiffres
     int batt_logo = 0;  // batterie : « % » + logo de pile dans les 2 derniers chiffres
+    const uint16_t *env_icon = NULL;   // humidité / UV / air / vent : icône dans les 2 derniers chiffres
+    int env_lvl = -1;                  // niveau 0 / 1 / 2 (-1 = inconnu) → couleur de l'icône
+    char env_tag = 0;                  // petit repère à gauche de l'icône : '%' (humidité), 'K' / 'M' (vent km/h / mph)
+    const char *env_unit = NULL;       // unité en petites lettres : « UV » (entre valeur et icône), « AQI » (à droite de la valeur, sans icône)
+    int sec_mode = 0;                  // secondes : 2 chiffres à gauche + texte « SEC » sur la largeur des 3 autres chiffres
+    bool env_ok = fc_fresh();
     switch (s_comp) {
       case 1:   // fréquence cardiaque (BPM) : 3 chiffres de gauche + logo de battement
         hr_logo = 1;
@@ -1576,14 +1798,41 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
         if (n_gl <= 4) unit_ch = s_temp_f ? 'F' : 'C';   // 5 caractères (valeur ≤ -10) : plus de place pour la lettre
         break;
       }
+      case 7:   // humidité relative
+        if (env_ok && s_hum >= 0) { snprintf(cstr, sizeof(cstr), "%d", s_hum > 100 ? 100 : s_hum); env_lvl = hum_level(s_hum); }
+        else                      snprintf(cstr, sizeof(cstr), "---");
+        ghost = "888"; env_icon = WI_HUMID; env_tag = '%';
+        break;
+      case 8:   // indice UV arrondi à l'entier (10.7 → 11, 0.6 → 1) : 2 chiffres + « UV » + icône
+        if (env_ok && s_uv10 >= 0) {
+          int u = (s_uv10 + 5) / 10;
+          snprintf(cstr, sizeof(cstr), "%d", u > 99 ? 99 : u);
+          env_lvl = uv_level(s_uv10);
+        } else snprintf(cstr, sizeof(cstr), "--");
+        ghost = "88"; env_icon = WI_UVSUN; env_unit = "UV";
+        break;
+      case 9:   // qualité de l'air (AQI européen)
+        if (env_ok && s_aqi >= 0) { snprintf(cstr, sizeof(cstr), "%d", s_aqi > 999 ? 999 : s_aqi); env_lvl = aqi_level(s_aqi); }
+        else                      snprintf(cstr, sizeof(cstr), "---");
+        ghost = "888"; env_unit = "AQI";   // pas d'icône : l'unité (colorée selon le niveau) est à droite de la valeur
+        break;
+      case 10:  // vitesse du vent (km/h ou mph selon l'unité de distance)
+        if (env_ok && s_wind10 >= 0) {
+          int wv = wind_disp(s_wind10);
+          snprintf(cstr, sizeof(cstr), "%d", wv > 999 ? 999 : wv);
+          env_lvl = wind_level(s_wind10);
+        } else snprintf(cstr, sizeof(cstr), "---");
+        ghost = "888"; env_icon = WI_WIND; env_tag = s_dist_mi ? 'M' : 'K';
+        break;
       case 5:   // pourcentage de batterie : 3 chiffres de gauche + « % » + logo de pile
         batt_logo = 1;
         snprintf(cstr, sizeof(cstr), "%d", s_batt_pct);
         ghost = "888";
         break;
-      case 4:   // secondes (le tick passe alors à la seconde)
+      case 4:   // secondes (le tick passe alors à la seconde) : 2 chiffres à gauche de la grille de 5 + « SEC »
         snprintf(cstr, sizeof(cstr), "%02d", tnow->tm_sec);
         ghost = "88";
+        sec_mode = 1;
         break;
       default:  // nombre de pas
         if (s_steps >= 0) snprintf(cstr, sizeof(cstr), "%d", s_steps > 99999 ? 99999 : s_steps);
@@ -1599,7 +1848,7 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
     GRect all_r = GRect(comp_x + PX(3), ty, comp_w - PX(6), 24);
     GTextAlignment align = GTextAlignmentRight;
     int unit_x = 0, unit_gap = 0;   // place libre à droite des chiffres (K / M ou logo)
-    if (unit_ch || hr_logo || batt_logo) {
+    if (unit_ch || hr_logo || batt_logo || env_icon || env_unit || sec_mode) {
       // Grille de 5 chiffres (comme les pas) : la distance utilise les 4 de gauche
       // (« 88.88 ») et le 5e emplacement reçoit la lettre K ou M ; la fréquence
       // cardiaque utilise les 3 de gauche (« 888 ») et le logo les 2 derniers.
@@ -1674,6 +1923,42 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
       }
     }
 
+    // Humidité / UV / vent : icône 16×16 (couleur selon le niveau) à droite des chiffres, avec « % » ou
+    // K / M (vent) juste à sa gauche ; UV : « UV » en petites lettres entre la valeur et l'icône.
+    // Qualité de l'air : pas d'icône, « AQI » (coloré selon le niveau) à droite de la valeur.
+    // Chiffres toujours en segments noirs.
+    if ((env_icon || env_unit) && unit_gap > 8) {
+      int dig_end = unit_x - unit_gap;               // fin des chiffres
+      int ex0 = dig_end + 2;
+      int ex1 = unit_x - 1;
+      GColor ec = lvl_color(env_lvl, col_fg);
+      int ty5 = y_dr + (dr_h - 10) / 2 + 1;
+      if (env_icon) {
+        int eix = ex1 - WI_W + 1;
+        if (eix >= ex0) {
+          draw_bits(ctx, env_icon, eix, y_dr + (dr_h - WI_H) / 2 + 1, ec);
+          if (env_tag && eix - 8 >= ex0) {
+            if (env_tag == '%') draw_pct_glyph(ctx, eix - 9, ty5, col_fg);   // « % » décalé de 1 px vers la gauche
+            else                draw_ind_letter(ctx, eix - 9, ty5, env_tag, col_fg);   // K / M (vent) décalé de 1 px vers la gauche
+          }
+          if (env_unit) {                              // « UV » centré entre les chiffres et l'icône
+            int uw = small_text_w(env_unit);
+            int ux = dig_end + (eix - dig_end - uw) / 2;
+            if (ux < dig_end + 1) ux = dig_end + 1;
+            draw_small_text(ctx, ux, ty5, env_unit, col_fg);
+          }
+        }
+      } else if (env_unit) {                           // « AQI » juste à droite de la valeur
+        draw_small_text(ctx, dig_end + 3, ty5, env_unit, ec);
+      }
+    }
+
+    // Secondes : « SEC » sur la largeur des 3 emplacements libres (grille de 5 chiffres comme les pas)
+    if (sec_mode && unit_gap >= 12) {
+      int sx0 = unit_x - unit_gap + 4;
+      draw_sec_text(ctx, sx0, y_dr + dr_h / 2, unit_x - sx0, col_fg);
+    }
+
     // Soleil : petite flèche à gauche (▲ lever, ▼ coucher) et trait d'horizon
     if (arrow) {
       int ax = comp_x + PX(5), ay = y_dr + dr_h / 2;
@@ -1696,9 +1981,36 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
     int t_h = y_info - y_time;
 
       // HH:MM @48 (≈164 px) centered
-      lcd_text(ctx, "88:88", time_str, f_dseg_lg,
-               GRect(ix, y_time + (t_h - 48) / 2, iw, 54),
-               col_ghost, col_fg, GTextAlignmentCenter);
+      // Complication « secondes » active (et seulement elle) : le « : » clignote à la seconde. Sur les secondes
+      // impaires on dessine HH et MM séparément, aux mêmes positions que dans le texte complet (le « : » disparaît,
+      // son segment éteint reste affiché).
+      if (s_comp == 4 && (tnow->tm_sec & 1)) {
+        GRect tr = GRect(ix, y_time + (t_h - 48) / 2, iw, 54);
+        if (GHOST_ON) {
+          graphics_context_set_text_color(ctx, col_ghost);
+          char gbuf[16];
+          ghost_text("88:88", gbuf, sizeof(gbuf));
+          graphics_draw_text(ctx, gbuf, f_dseg_lg, tr, GTextOverflowModeFill, GTextAlignmentCenter, NULL);
+        }
+        char t_hh[4], t_hc[5], t_mm[4];
+        snprintf(t_hh, sizeof(t_hh), "%02d", hh);
+        snprintf(t_hc, sizeof(t_hc), "%02d:", hh);
+        snprintf(t_mm, sizeof(t_mm), "%02d", tnow->tm_min);
+        GRect big = GRect(0, 0, 2000, 100);
+        int w_all = graphics_text_layout_get_content_size(time_str, f_dseg_lg, big, GTextOverflowModeFill, GTextAlignmentLeft).w;
+        int w_hh  = graphics_text_layout_get_content_size(t_hh, f_dseg_lg, big, GTextOverflowModeFill, GTextAlignmentLeft).w;
+        int w_hc  = graphics_text_layout_get_content_size(t_hc, f_dseg_lg, big, GTextOverflowModeFill, GTextAlignmentLeft).w;
+        int tx0 = ix + (iw - w_all) / 2;
+        graphics_context_set_text_color(ctx, col_fg);
+        graphics_draw_text(ctx, t_hh, f_dseg_lg, GRect(tx0, tr.origin.y, w_hh + 8, tr.size.h),
+                           GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+        graphics_draw_text(ctx, t_mm, f_dseg_lg, GRect(tx0 + w_hc, tr.origin.y, ix + iw - (tx0 + w_hc), tr.size.h),
+                           GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+      } else {
+        lcd_text(ctx, "88:88", time_str, f_dseg_lg,
+                 GRect(ix, y_time + (t_h - 48) / 2, iw, 54),
+                 col_ghost, col_fg, GTextAlignmentCenter);
+      }
 
     // 12 h : indicateurs P (en haut) et A (en bas) à gauche de l'heure.
     // Les deux sont dessinés éteints (fantômes), celui de la période en cours allumé.
@@ -2047,7 +2359,7 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
   }
   if ((t = dict_find(iter, MESSAGE_KEY_COMPLICATION))) {
     s_comp = (int)t->value->int32;
-    if (s_comp < 0 || s_comp > 6) s_comp = 0;
+    if (s_comp < 0 || s_comp > 10) s_comp = 0;
     persist_write_int(PERSIST_COMP, s_comp);
     update_tick_subscription();   // secondes : tick à la seconde, sinon à la minute
   }
@@ -2060,6 +2372,10 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
     persist_write_int(PERSIST_RED_RING, r_r_sides);
     if (s_canvas) layer_mark_dirty(s_canvas);
   }
+  if ((t = dict_find(iter, MESSAGE_KEY_HUMIDITY)))    s_hum    = (int)t->value->int32;
+  if ((t = dict_find(iter, MESSAGE_KEY_UV_INDEX)))    s_uv10   = (int)t->value->int32;
+  if ((t = dict_find(iter, MESSAGE_KEY_AIR_QUALITY))) s_aqi    = (int)t->value->int32;
+  if ((t = dict_find(iter, MESSAGE_KEY_WIND_SPEED)))  s_wind10 = (int)t->value->int32;
   if ((t = dict_find(iter, MESSAGE_KEY_TEMP_UNIT))) {
     s_temp_f = (t->value->int32 == 1) ? 1 : 0;
     persist_write_int(PERSIST_TEMP_F, s_temp_f);
@@ -2133,7 +2449,7 @@ static const uint32_t RES_TIME48[9] = {
   RESOURCE_ID_FONT_DSEG_M_TIME48, RESOURCE_ID_FONT_DSEG_MM_TIME48,
   RESOURCE_ID_FONT_DSEG_FC_TIME48, RESOURCE_ID_FONT_DSEG_FCM_TIME48,
   RESOURCE_ID_FONT_DSEG_FM_TIME48, RESOURCE_ID_FONT_DSEG_FMM_TIME48,
-  RESOURCE_ID_FONT_DSEG_SD_TIME48          // 8 = 7 segments spécial D (Seg7Custom-Bold)
+  RESOURCE_ID_FONT_DSEG_SD_TIME48          // 8 = 7 segments spécial D (Seg7Custom-Bold-48 : bitmap calé sur la grille 48 px)
 };
 static const uint32_t RES_F20_BOLD[9] = {
   RESOURCE_ID_FONT_DSEG_C_BOLD20, RESOURCE_ID_FONT_DSEG_CM_BOLD20,
@@ -2147,7 +2463,7 @@ static const uint32_t RES_F20_REG[9] = {
   RESOURCE_ID_FONT_DSEG_M_REG20, RESOURCE_ID_FONT_DSEG_MM_REG20,
   RESOURCE_ID_FONT_DSEG_FC_REG20, RESOURCE_ID_FONT_DSEG_FCM_REG20,
   RESOURCE_ID_FONT_DSEG_FM_REG20, RESOURCE_ID_FONT_DSEG_FMM_REG20,
-  RESOURCE_ID_FONT_DSEG_SD_REG20           // une seule graisse (Bold) fournie : utilisée aussi pour « normal »
+  RESOURCE_ID_FONT_DSEG_SD_REG20           // une seule graisse (Seg7Custom-Bold-20, calée sur la grille 20 px) : utilisée aussi pour « normal »
 };
 
 static void unload_dseg_fonts(void) {
@@ -2215,7 +2531,7 @@ static void load_settings(void) {
   if (s_font_style < 0 || s_font_style > 8) s_font_style = CFG_FONT_STYLE;
   if (persist_exists(PERSIST_COMP))     s_comp     = persist_read_int(PERSIST_COMP);
   if (persist_exists(PERSIST_DIST_MI))  s_dist_mi  = (persist_read_int(PERSIST_DIST_MI) == 1) ? 1 : 0;
-  if (s_comp < 0 || s_comp > 6) s_comp = CFG_COMPLICATION;
+  if (s_comp < 0 || s_comp > 10) s_comp = CFG_COMPLICATION;
   if (persist_exists(PERSIST_RED_RING)) r_r_sides = (persist_read_int(PERSIST_RED_RING) == 1) ? 1 : 0;
   if (persist_exists(PERSIST_TEMP_F)) s_temp_f = (persist_read_int(PERSIST_TEMP_F) == 1) ? 1 : 0;
   if (persist_exists(PERSIST_BATT)) s_batt_color = (persist_read_int(PERSIST_BATT) == 1) ? 1 : 0;
