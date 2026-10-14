@@ -418,6 +418,36 @@ function planWeather(ms) {
   weatherTimer = setTimeout(fetchWeather, ms);
 }
 
+// ── Cache de la dernière prévision ───────────────────────────────────────
+// Ouvrir le menu ou les notifications ferme puis relance le cadran, donc le JS
+// redémarre (évènement « ready »). Au lieu de tout recharger à chaque fois, on
+// renvoie la dernière prévision si elle a moins de 60 min.
+var CACHE_KEY = 'satsuki-last-forecast';
+var CACHE_TTL = 60 * 60 * 1000;   // = délai normal de rafraîchissement
+
+function saveCache(msg) {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), msg: msg }));
+  } catch (e) {}
+}
+
+function loadCache() {
+  try {
+    var c = JSON.parse(localStorage.getItem(CACHE_KEY));
+    var age = c ? Date.now() - c.ts : -1;
+    if (c && c.msg && age >= 0 && age < CACHE_TTL) return c;
+  } catch (e) {}
+  return null;
+}
+
+// Réutilise la dernière prévision si elle a moins de 60 min, sinon récupère
+function fetchOrReuse() {
+  var c = loadCache();
+  if (!c) { fetchWeather(); return; }
+  sendMsg(c.msg, 'prévisions (cache)');
+  planWeather(CACHE_TTL - (Date.now() - c.ts));   // prochain fetch à l'échéance d'origine
+}
+
 function refreshMs() {
   return Math.max(5, parseInt(CFG.REFRESH_MIN, 10) || 30) * 60 * 1000;
 }
@@ -478,6 +508,7 @@ function requestForecast(lat, lon) {
 		  addEnv(msg, data, aqi);
 		  addSettings(msg);
 
+		  saveCache(msg);
 		  sendMsg(msg, 'prévisions + tendance');
 
 		  fetching = false;
@@ -566,7 +597,7 @@ function fetchWeather() {
 // ── Événements Pebble ────────────────────────────────────────────────────
 Pebble.addEventListener('ready', function() {
   console.log('[Satsuki Retro LCD Meteo] JS prêt');
-  fetchWeather();
+  fetchOrReuse();
   // Renvoie les réglages enregistrés (montre réinstallée, par exemple)
   sendSettings();
 });
