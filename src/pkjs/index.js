@@ -51,6 +51,27 @@ function clayCustom(minified) {
       wrist.on('change', showCycles);
       showCycles();
     }
+    // Textes personnalisés : seuls les champs utiles à la disposition choisie sont visibles (et, pour le bandeau,
+    // seulement si son contenu est « Texte personnalisé »)
+    ['TOP', 'BOT', 'BAN'].forEach(function(id) {
+      var use = (id === 'BAN') ? clayConfig.getItemByMessageKey('CX_BAN_USE') : null;
+      var mode = clayConfig.getItemByMessageKey('CX_' + id + '_MODE');
+      if (!mode) return;
+      var apply = function() {
+        var on = !use || String(use.get()) === '1';
+        var m = String(mode.get());
+        var used = { L: m === '2' || m === '3', C: m === '1' || m === '3', R: m === '2' || m === '3' };
+        var mi = clayConfig.getItemsByGroup('cx_' + id + '_M') || [];
+        for (var i = 0; i < mi.length; i++) { if (on) mi[i].show(); else mi[i].hide(); }
+        ['L', 'C', 'R'].forEach(function(p) {
+          var its = clayConfig.getItemsByGroup('cx_' + id + '_' + p) || [];
+          for (var j = 0; j < its.length; j++) { if (on && used[p]) its[j].show(); else its[j].hide(); }
+        });
+      };
+      mode.on('change', apply);
+      if (use) use.on('change', apply);
+      apply();
+    });
     var flag = clayConfig.getItemByMessageKey('SET_LOAD_FLAG');
     var sel = clayConfig.getItemByMessageKey('SET_LOAD');
     var btn = clayConfig.getItemById('setLoadBtn');
@@ -97,6 +118,9 @@ var K = {
   WRIST_ACTION: 'WRIST_ACTION',        // téléphone → montre : mouvement du poignet : 0 aucune (détection coupée), 1 cycle complications
   CYCLE_DATA: 'CYCLE_DATA',            // téléphone → montre : 15 octets = 5 cycles × (case date, rangée haut, rangée bas) ; 255 = inchangé
   // (sets de configuration : uniquement sur le téléphone, rien n'est envoyé à la montre)
+  CUSTOM_TOP: 'CUSTOM_TOP',            // téléphone → montre : textes personnalisés (rangée du haut, du bas, bandeau) : voir customString
+  CUSTOM_BOT: 'CUSTOM_BOT',
+  CUSTOM_BAN: 'CUSTOM_BAN',
   STATE_PACK: 'STATE_PACK'             // montre → téléphone : état d'affichage courant après un cycle (voir packSettings)
 };
 
@@ -123,7 +147,7 @@ function cycleBytes(s) {
   for (var k = 1; k <= 5; k++) {
     for (var i = 0; i < 3; i++) {
       var v = parseInt(s['CYC' + k + '_' + slots[i]], 10);
-      out.push((isNaN(v) || v < 0 || v > 10) ? 255 : v);
+      out.push((isNaN(v) || v < 0 || v > (i === 0 ? 10 : 11)) ? 255 : v);   // case date 0..10, rangées 0..11 (11 = texte personnalisé)
     }
   }
   return out;
@@ -137,6 +161,30 @@ function locIdx(v) {
 function actionFrom(v) {
   var a = parseInt(v, 10);
   return (a === 1) ? 1 : 0;
+}
+
+// ── Textes personnalisés ─────────────────────────────────────────────────
+// Un texte par emplacement (rangée du haut « TOP », du bas « BOT », bandeau « BAN »), envoyé à la montre sous la forme
+//   RRGGBB texte  [ 0x1F RRGGBB texte  [ 0x1F RRGGBB texte ] ]
+// 1 segment = centré, 2 = gauche + droite, 3 = gauche + centre + droite (selon la « disposition » choisie).
+// 16 caractères et 33 octets UTF-8 au plus par texte (tampon de la montre).
+var CUSTOM_COLOR_DEF = { TOP: 'FFFFFF', BOT: 'FFFFFF', BAN: 'FFFF00' };
+
+function cleanCustomText(v) {
+  var t = String(v === undefined || v === null ? '' : v).replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 16);
+  function bytes(x) { try { return unescape(encodeURIComponent(x)).length; } catch (e) { return x.length; } }
+  while (t.length && bytes(t) > 33) t = t.substring(0, t.length - 1);
+  return t.trim();
+}
+
+function customString(s, id) {
+  var mode = parseInt(s['CX_' + id + '_MODE'], 10);
+  var parts = (mode === 2) ? ['L', 'R'] : (mode === 3) ? ['L', 'C', 'R'] : ['C'];
+  return parts.map(function(p) {
+    var col = String(s['CX_' + id + '_' + p + '_COL'] || '').toUpperCase();
+    if (!/^[0-9A-F]{6}$/.test(col)) col = CUSTOM_COLOR_DEF[id];
+    return col + cleanCustomText(s['CX_' + id + '_' + p]);
+  }).join('\u001f');
 }
 
 function readSettings() {
@@ -156,8 +204,10 @@ function readSettings() {
     dist: parseInt(s.DIST_UNIT, 10) === 1 ? 1 : 0,
     battStyle: parseInt(s.BATT_STYLE, 10) === 1 ? 1 : 0,
     period: Math.max(1, Math.min(4, parseInt(s.WEATHER_PERIOD, 10) || 1)),
-    compTop: Math.max(0, Math.min(10, parseInt(s.COMP_TOP, 10) || 0)),
-    compBot: Math.max(0, Math.min(10, parseInt(s.COMP_BOTTOM, 10) || 0)),
+    compTop: Math.max(0, Math.min(11, parseInt(s.COMP_TOP, 10) || 0)),
+    compBot: Math.max(0, Math.min(11, parseInt(s.COMP_BOTTOM, 10) || 0)),
+    banCustom: parseInt(s.CX_BAN_USE, 10) === 1,                       // bandeau du bas : texte personnalisé au lieu de ville + tendance
+    custom: [customString(s, 'TOP'), customString(s, 'BOT'), parseInt(s.CX_BAN_USE, 10) === 1 ? customString(s, 'BAN') : ''],
     redRing: parseInt(s.RED_RING_LATERAL, 10) === 1 ? 1 : 0,
     // localisation de chaque affichage : -1 = position GPS actuelle, 0..4 = localisation enregistrée
     locSide: locIdx(s.LOC_SIDE), locTop: locIdx(s.LOC_TOP), locBot: locIdx(s.LOC_BOTTOM),
@@ -194,8 +244,8 @@ function applyStateToSettings(v) {
   s.DIST_UNIT        = String((v >> 15) & 1);
   s.TEMP_UNIT        = String((v >> 16) & 1);
   s.BATT_STYLE       = String((v >> 17) & 1);
-  s.COMP_TOP         = String(Math.min(10, (v >> 18) & 15));
-  s.COMP_BOTTOM      = String(Math.min(10, (v >> 22) & 15));
+  s.COMP_TOP         = String(Math.min(11, (v >> 18) & 15));
+  s.COMP_BOTTOM      = String(Math.min(11, (v >> 22) & 15));
   s.WEATHER_PERIOD   = String(((v >> 26) & 3) + 1);
   storeRawSettings(s);
 }
@@ -232,7 +282,7 @@ function applyCyclesToSettings(c) {
   for (var k = 0; k < 5; k++) {
     for (var i = 0; i < 3; i++) {
       var v = c[k * 3 + i];
-      s['CYC' + (k + 1) + '_' + slots[i]] = String((typeof v === 'number' && v >= 0 && v <= 10) ? v : -1);
+      s['CYC' + (k + 1) + '_' + slots[i]] = String((typeof v === 'number' && v >= 0 && v <= (i === 0 ? 10 : 11)) ? v : -1);
     }
   }
   storeRawSettings(s);
@@ -1042,6 +1092,7 @@ function buildPlan(s, locs) {
     if (s.compBot === 9 || s.compBot === 10) c.env = true;
     shown.push({ n: 3, key: resolveLoc(s.locBot, locs) });
   }
+  if (s.banCustom) return plan;   // bandeau en texte personnalisé : ni ville ni tendance à récupérer
   if (!shown.length) {   // aucune complication météo : le bandeau se base sur les trois choix de localisation
     shown = [{ n: 1, key: resolveLoc(s.locSide, locs) }, { n: 2, key: resolveLoc(s.locTop, locs) }, { n: 3, key: resolveLoc(s.locBot, locs) }];
   }
@@ -1069,7 +1120,7 @@ function planSig() {
     var n = p.loc[keys[i]];
     parts.push(keys[i] + ':' + n.mask + (n.aqi ? 'a' : '') + (n.env ? 'e' : '') + (n.name ? 'n' : '') + (n.trend ? 't' : ''));
   }
-  var b = p.banner.single !== undefined ? 'S' + p.banner.single
+  var b = !p.banner ? 'C' : p.banner.single !== undefined ? 'S' + p.banner.single
         : p.banner.groups.map(function(g) { return g.key + '=' + g.nums.join(''); }).join(',');
   return parts.join(';') + '|' + b;
 }
@@ -1296,6 +1347,10 @@ function sendSettings() {
   var m = addSettings({});
   if (Object.keys(m).length > 0) {
     sendMsg(m, 'réglages');
+    // textes personnalisés : message séparé (tampon de réception de la montre)
+    var s = readSettings(), c = {};
+    c[K.CUSTOM_TOP] = s.custom[0]; c[K.CUSTOM_BOT] = s.custom[1]; c[K.CUSTOM_BAN] = s.custom[2];
+    sendMsg(c, 'textes');
   }
 }
 

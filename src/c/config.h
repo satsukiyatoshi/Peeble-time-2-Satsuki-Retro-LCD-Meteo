@@ -90,6 +90,13 @@
 // Bandeau du bas (sans réglage) : « VILLE : TENDANCE » si tous les affichages météo partagent la même localisation ;
 // sinon les numéros d'affichage suivis de leur ville, ex. « 1|2 BORDEAUX 3 PARIS » (noms raccourcis au besoin).
 
+// ── Textes personnalisés (aucun réglage ici : page de réglages du téléphone) ──
+// Les rangées du haut et du bas peuvent afficher un texte personnalisé (complication « Texte personnalisé », aussi
+// utilisable dans les cycles) ; le bandeau du bas aussi (« Contenu du bandeau »). Trois dispositions : un texte centré,
+// gauche + droite, ou gauche + centre + droite ; chaque texte a sa couleur (palette de la montre). Rangées : police
+// Gothic gras comme les libellés du haut, taille ajustée automatiquement (24 → 18 → 14 puis « … »). Bandeau : même
+// police et même taille que la tendance météo.
+
 // ── Mouvement du poignet (remplace les boutons Haut / Bas, inutilisables dans un cadran) ──
 // VALEUR PAR DÉFAUT (la page de réglages du téléphone l'emporte) :
 //   0 = aucune action (la détection de mouvement est alors DÉSACTIVÉE) ;

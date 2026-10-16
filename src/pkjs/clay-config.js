@@ -14,7 +14,9 @@
  *   température "0" = °C, période météo "1" = 1 h, rangées haut et bas "0" = météo horaire,
  *   mouvement du poignet "0" = aucune action, cycles 1 à 5 : tout « Inchangé » ("-1").
  *
- * Organisation : Langue / Affichage / Unités / Complications / Localisations (UN seul cadre : choix par affichage +
+ * Textes personnalisés : rangée du haut, rangée du bas et bandeau du bas (CX_TOP_*, CX_BOT_*, CX_BAN_* ; CX_BAN_USE = contenu
+ * du bandeau) ; index.js les assemble en un texte par emplacement (customString) envoyé dans CUSTOM_TOP / _BOT / _BAN.
+ * Organisation : Langue / Affichage / Unités / Complications / Textes personnalisés / Localisations (UN seul cadre : choix par affichage +
  * 5 localisations enregistrées, une ligne chacune) / Mouvement du poignet + cycles / Sets.
  * Localisations : LOC_SIDE, LOC_TOP, LOC_BOTTOM choisissent la localisation de la case à côté de la date (n° 1), de la
  * rangée du haut (n° 2) et de la rangée du bas (n° 3) (\"-1\" = position GPS actuelle, \"0\"..\"4\" = localisation
@@ -60,7 +62,8 @@ module.exports = function(lang) {
     opt(8,  "Pas + distance",                           "Steps + distance"),
     opt(2,  "Calories + pas",                           "Calories + steps"),
     opt(9,  "Indice UV + qualité de l'air",             "UV index + air quality"),
-    opt(10, "Humidité + vitesse du vent",               "Humidity + wind speed")
+    opt(10, "Humidité + vitesse du vent",               "Humidity + wind speed"),
+    opt(11, "Texte personnalisé",                       "Custom text")
   ];
   var UNCHANGED = opt(-1, "— Inchangé", "— Unchanged");
 
@@ -114,6 +117,52 @@ module.exports = function(lang) {
                    "attributes": { "placeholder": ph[k - 1], "type": "text" } });
     }
     return items;
+  }
+
+  // ── Textes personnalisés : rangée du haut, rangée du bas, bandeau du bas ──
+  // Couleurs de la palette 64 couleurs de la montre (valeur = RRGGBB)
+  var COLORS = [
+    ["FFFFFF", "Blanc", "White"], ["FFFF00", "Jaune", "Yellow"], ["FFFF55", "Jaune clair", "Light yellow"],
+    ["FFAA00", "Orange", "Orange"], ["FF0000", "Rouge", "Red"], ["FF55AA", "Rose", "Pink"],
+    ["FF00FF", "Magenta", "Magenta"], ["AA55FF", "Violet", "Purple"], ["0055FF", "Bleu", "Blue"],
+    ["55AAFF", "Bleu clair", "Light blue"], ["00FFFF", "Cyan", "Cyan"], ["55FF55", "Vert clair", "Light green"],
+    ["00FF00", "Vert", "Green"], ["AAAAAA", "Gris clair", "Light gray"]
+  ];
+  function colorOpts() {
+    return COLORS.map(function(c) { return { "label": t(c[1], c[2]), "value": c[0] }; });
+  }
+  // Un bloc : disposition (1 texte centré / gauche + droite / gauche + centre + droite) puis, pour chaque texte, son contenu
+  // et sa couleur. Les éléments inutiles sont masqués par clayCustom (index.js) selon la disposition choisie.
+  // Clés : CX_<id>_MODE, CX_<id>_L / _C / _R (texte) et CX_<id>_L_COL / _C_COL / _R_COL (couleur) ; id = TOP, BOT, BAN.
+  function customBlock(id, title, defColor) {
+    var items = [ { "type": "heading", "size": 5, "defaultValue": title } ];
+    if (id === "BAN") {
+      items.push({ "type": "select", "messageKey": "CX_BAN_USE", "label": t("Contenu du bandeau", "Banner content"),
+                   "defaultValue": "0", "options": [ opt(0, "Ville + tendance météo", "City + weather trend"),
+                                                     opt(1, "Texte personnalisé", "Custom text") ] });
+    }
+    items.push({ "type": "select", "messageKey": "CX_" + id + "_MODE", "group": "cx_" + id + "_M", "label": t("Disposition", "Layout"),
+                 "defaultValue": "1", "options": [ opt(1, "Un texte centré", "One centered text"),
+                                                   opt(2, "Gauche + droite", "Left + right"),
+                                                   opt(3, "Gauche + centre + droite", "Left + center + right") ] });
+    var parts = [ ["L", "Texte à gauche", "Left text"], ["C", "Texte centré", "Centered text"], ["R", "Texte à droite", "Right text"] ];
+    for (var i = 0; i < parts.length; i++) {
+      var g = "cx_" + id + "_" + parts[i][0];
+      items.push({ "type": "input", "messageKey": "CX_" + id + "_" + parts[i][0], "group": g, "label": t(parts[i][1], parts[i][2]),
+                   "defaultValue": "", "attributes": { "limit": 16, "type": "text" } });
+      items.push({ "type": "select", "messageKey": "CX_" + id + "_" + parts[i][0] + "_COL", "group": g, "label": t("Couleur", "Color"),
+                   "defaultValue": defColor, "options": colorOpts() });
+    }
+    return items;
+  }
+  function customItems() {
+    return [ { "type": "heading", "size": 4, "defaultValue": t("Textes personnalisés", "Custom texts") },
+             { "type": "text", "defaultValue": t(
+                 "Pour une rangée, choisissez « Texte personnalisé » dans la liste des complications ci-dessus (ou dans un cycle) ; pour le bandeau, « Texte personnalisé » dans « Contenu du bandeau ». 16 caractères maximum par texte ; la taille s'ajuste à la place disponible.",
+                 "For a row, pick « Custom text » in the complications list above (or in a cycle); for the banner, « Custom text » in « Banner content ». 16 characters max per text; the size adjusts to the available room.") } ]
+      .concat(customBlock("TOP", t("Au-dessus de l'heure", "Above the time"), "FFFFFF"))
+      .concat(customBlock("BOT", t("Sous l'heure", "Below the time"), "FFFFFF"))
+      .concat(customBlock("BAN", t("Bandeau du bas", "Bottom banner"), "FFFF00"));
   }
 
   return [
@@ -296,6 +345,12 @@ module.exports = function(lang) {
           ]
         }
       ]
+    },
+
+    // ── Textes personnalisés ──────────────────────────────────────────────
+    {
+      "type": "section",
+      "items": customItems()
     },
 
     // ── Localisations (un seul cadre) ─────────────────────────────────────

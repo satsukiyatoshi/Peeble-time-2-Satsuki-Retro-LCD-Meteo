@@ -1,7 +1,7 @@
 {
   "name": "satsukiretrolcdmeteo",
   "author": "Satsuki",
-  "version": "1.3.3",
+  "version": "1.3.5",
   "keywords": [
     "pebble-app"
   ],
@@ -273,7 +273,10 @@
       "CYCLE_DATA",
       "STATE_PACK",
       "WX_SLOTS",
-      "WX_UTC_OFF"
+      "WX_UTC_OFF",
+      "CUSTOM_TOP",
+      "CUSTOM_BOT",
+      "CUSTOM_BAN"
     ]
   }
 }

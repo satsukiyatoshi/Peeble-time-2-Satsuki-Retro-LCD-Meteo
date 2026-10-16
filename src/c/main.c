@@ -110,6 +110,7 @@
 //                            Chaque jeu vient d'UNE localisation choisie dans la page de réglages (le téléphone
 //                            n'envoie qu'un message par localisation, copié par la montre dans tous les jeux du masque).
 //                            Un message sans FORECAST_TS (tendance seule) ne touche à aucun jeu.
+//   CUSTOM_TOP, CUSTOM_BOT, CUSTOM_BAN  textes personnalisés (rangée du haut, rangée du bas, bandeau du bas) : voir s_custom
 //   WX_UTC_OFF               décalage UTC (s) de la localisation : heures des colonnes, lever / coucher, jour courant
 //   WEATHER_PERIOD           réglage Clay utilisé seulement par le téléphone
 // ATTENTION : dans le SDK, les MESSAGE_KEY_xxx sont des variables (extern), pas des
@@ -163,6 +164,7 @@ static void init_forecast_keys(void) {
 #define PERSIST_CYC_DATA  16     // 5 cycles x 3 emplacements (15 octets)
 #define PERSIST_CYC_IDX   17     // dernier cycle appliqué (-1 = aucun)
 #define PERSIST_PERIOD    19
+#define PERSIST_CUSTOM    20     // 20..22 : textes personnalisés (rangée du haut, rangée du bas, bandeau du bas)
 
 // ── Prévisions horaires : 2 lignes de 5 colonnes (H+1 … H+10) ────────────
 // Entier reçu : bits 0-6 code météo WMO (127 = inconnu), bit 7 jour,
@@ -227,6 +229,12 @@ static int  s_comp_top = CFG_COMP_TOP;      // rangée de prévisions du haut : 
 static int  s_comp_bot = CFG_COMP_BOTTOM;   // rangée du bas (mêmes choix)
 static int  s_batt_color = CFG_BATT_COLOR;  // segments de la pile : 0 monochrome (rouge < 10 %), 1 couleur (vert / jaune / rouge)
 static bool s_charging   = false;           // en charge : les segments clignotent à la seconde
+
+// Textes personnalisés : [0] rangée du haut, [1] rangée du bas, [2] bandeau du bas. Format envoyé par le téléphone :
+// segments séparés par 0x1F, chaque segment = couleur RRGGBB (6 hexa) + texte ; 1 segment = centré, 2 = gauche + droite,
+// 3 = gauche + centre + droite. Vide = pas de texte personnalisé (bandeau : tendance / ville).
+#define CUSTOM_LEN 128
+static char s_custom[3][CUSTOM_LEN] = { "", "", "" };
 
 static char s_toast[24] = "";              // message temporaire (nom du set) à la place de la ville / tendance
 static char s_weather_trend[64] = "METEO"; // texte du bandeau du bas reçu du téléphone (« VILLE : TENDANCE » ou « #1|2 VILLE;3 VILLE »)
@@ -496,6 +504,93 @@ static int trend_text_w(const char *s, GFont font) {
   return sz.w;
 }
 
+// ── Textes personnalisés (rangées du haut / du bas, bandeau du bas) ────────
+// 1 texte : centré ; 2 : gauche + droite ; 3 : gauche + centre (centré sur « mid ») + droite. Chaque texte a sa couleur.
+// « fonts » : polices essayées de la plus grande à la plus petite jusqu'à ce que tout tienne sans chevauchement ;
+// si même la dernière ne suffit pas, les textes sont terminés par « … ». dy / fh : décalage vertical et hauteur de
+// boîte propres à chaque police (une seule ligne : pas de retour à la ligne).
+typedef struct { int n; int rgb[3]; char txt[3][36]; } CustomSpec;
+
+static int hex_val(char c) {
+  if (c >= '0' && c <= '9') return c - '0';
+  if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+  if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+  return 0;
+}
+
+static void custom_parse(const char *raw, CustomSpec *c) {
+  c->n = 0;
+  const char *p = raw;
+  while (c->n < 3) {
+    const char *end = strchr(p, '\x1f');
+    size_t len = end ? (size_t)(end - p) : strlen(p);
+    if (len < 6) break;                                   // segment mal formé
+    int rgb = 0;
+    for (int i = 0; i < 6; i++) rgb = rgb * 16 + hex_val(p[i]);
+    c->rgb[c->n] = rgb;
+    size_t tl = len - 6;
+    if (tl >= sizeof(c->txt[0])) tl = sizeof(c->txt[0]) - 1;
+    memcpy(c->txt[c->n], p + 6, tl);
+    c->txt[c->n][tl] = '\0';
+    c->n++;
+    if (!end) break;
+    p = end + 1;
+  }
+}
+
+static void ct_draw(GContext *ctx, const char *txt, int rgb, GFont font, int x, int y, int w, int h, GTextAlignment al) {
+  if (!txt[0] || w <= 0) return;
+  graphics_context_set_text_color(ctx, color_from_int(rgb));
+  graphics_draw_text(ctx, txt, font, GRect(x, y, w, h), GTextOverflowModeTrailingEllipsis, al, NULL);
+}
+
+static void draw_custom_texts(GContext *ctx, const char *raw, int xl, int xr, int mid, int y,
+                              const GFont *fonts, const int *dy, const int *fh, int nf) {
+  CustomSpec c;
+  custom_parse(raw, &c);
+  if (c.n == 0) return;
+  int span = xr - xl;
+  int w[3] = { 0, 0, 0 };
+  int f;
+  for (f = 0; f < nf; f++) {
+    for (int i = 0; i < c.n; i++) w[i] = c.txt[i][0] ? trend_text_w(c.txt[i], fonts[f]) : 0;
+    bool ok;
+    if (c.n == 1)      ok = (w[0] <= span);
+    else if (c.n == 2) ok = (w[0] + w[1] + 6 <= span);
+    else               ok = (xl + w[0] + 4 <= mid - w[1] / 2) && (mid + w[1] / 2 + 4 <= xr - w[2]);
+    if (ok) break;
+  }
+  if (f >= nf) f = nf - 1;                                // rien ne tient : dernière (plus petite) police, avec « … »
+  GFont fo = fonts[f];
+  int yy = y + dy[f], h = fh[f];
+
+  if (c.n == 1) {
+    int bw = w[0] + 4;
+    if (bw > span) bw = span;
+    int x = mid - bw / 2;
+    if (x < xl) x = xl;
+    if (x + bw > xr) x = xr - bw;
+    ct_draw(ctx, c.txt[0], c.rgb[0], fo, x, yy, bw, h, GTextAlignmentCenter);
+  } else if (c.n == 2) {
+    int avail = span - 6;
+    int lw = w[0], rw = w[1];
+    if (lw + rw > avail) {                                // trop long : le plus court garde sa largeur
+      if (lw > avail / 2 && rw > avail / 2) { lw = avail / 2; rw = avail - lw; }
+      else if (lw <= avail / 2)             { rw = avail - lw; }
+      else                                  { lw = avail - rw; }
+    }
+    ct_draw(ctx, c.txt[0], c.rgb[0], fo, xl, yy, lw + 3, h, GTextAlignmentLeft);
+    ct_draw(ctx, c.txt[1], c.rgb[1], fo, xr - (rw + 3), yy, rw + 3, h, GTextAlignmentRight);
+  } else {
+    int cw = w[1] + 4;
+    if (cw > span - 60) cw = span - 60;                   // les côtés gardent au moins 30 px chacun
+    int cx = mid - cw / 2;
+    ct_draw(ctx, c.txt[1], c.rgb[1], fo, cx, yy, cw, h, GTextAlignmentCenter);
+    ct_draw(ctx, c.txt[0], c.rgb[0], fo, xl, yy, cx - 4 - xl, h, GTextAlignmentLeft);
+    ct_draw(ctx, c.txt[2], c.rgb[2], fo, cx + cw + 4, yy, xr - (cx + cw + 4), h, GTextAlignmentRight);
+  }
+}
+
 // Traduit le mot de tendance envoyé par le téléphone (toujours en français,
 // éventuellement suivi d'un pourcentage : « PLUIE 8% ») selon la langue choisie (s_lang).
 // Sans effet en français ; mot inconnu = laissé tel quel.
@@ -605,6 +700,15 @@ static void draw_weather_trend(GContext *ctx, GFont font, int y, int W, int H) {
     graphics_draw_text(ctx, s_toast, font,
                        GRect(margin, y, max_w, H - y),
                        GTextOverflowModeFill, GTextAlignmentCenter, NULL);
+    return;
+  }
+
+  // Texte personnalisé (réglage du téléphone) : même police et même taille que la tendance
+  if (s_custom[2][0]) {
+    GFont bf[1] = { font };
+    static const int bdy[1] = { 0 }, bfh[1] = { 20 };
+    int bw = W - (3 * margin);
+    draw_custom_texts(ctx, s_custom[2], (W - bw) / 2, W - (W - bw) / 2, W / 2, y, bf, bdy, bfh, 1);
     return;
   }
 
@@ -1202,7 +1306,7 @@ static int weather_icon(int code, bool day) {
 // ── Complications des rangées de prévisions (hors météo horaire) ─────────
 // Valeurs de COMP_TOP / COMP_BOTTOM (gardées compatibles avec la version précédente)
 enum { CK_WEATHER = 0, CK_HR_DIST, CK_CAL_STEPS, CK_SUN, CK_TREND,
-       CK_HR_CAL, CK_HR_STEPS, CK_DIST_CAL, CK_DIST_STEPS, CK_UV_AQI, CK_HUM_WIND, CK_COUNT };
+       CK_HR_CAL, CK_HR_STEPS, CK_DIST_CAL, CK_DIST_STEPS, CK_UV_AQI, CK_HUM_WIND, CK_CUSTOM, CK_COUNT };
 // Mesures affichables dans une demi-rangée
 enum { M_HR = 0, M_DIST, M_CAL, M_STEPS, M_UV, M_AQI, M_HUM, M_WIND };
 
@@ -2328,6 +2432,15 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
       bool fresh = fc_fresh(wr);
       bool cont  = (row == 1) && s_bot_cont;                  // rangée du bas = suite du haut (même localisation)
 
+      if (kinds[row] == CK_CUSTOM) {    // texte personnalisé : police Gothic gras (comme RETRO / TIME 2), grande pour remplir la hauteur
+        GFont rf[3] = { fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD),
+                        fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
+                        fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD) };
+        static const int rdy[3] = { 3, 6, 8 }, rfh[3] = { 30, 24, 20 };   // centre des capitales sur le milieu de la cellule (32 px)
+        int half_ = group_w / 2 - 4, mid_ = ix + iw / 2;
+        draw_custom_texts(ctx, s_custom[row], mid_ - half_ + 3, mid_ + half_ - 3, mid_, y0, rf, rdy, rfh, 3);
+        continue;
+      }
       if (kinds[row] != CK_WEATHER) {   // autre complication : FC + distance, calories + pas, soleil, tendance 3 jours
         draw_comp_row(ctx, kinds[row], wr, x0, group_w, y0, ix + iw / 2, (both_tr && cont) ? 3 : 0, f_tiny, f_lbl, f_date);
         continue;
@@ -2754,6 +2867,18 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
     if (s_comp_bot < 0 || s_comp_bot >= CK_COUNT) s_comp_bot = 0;
     persist_write_int(PERSIST_COMP_BOT, s_comp_bot);
   }
+  // Textes personnalisés (rangée du haut, du bas, bandeau) : message séparé des réglages
+  {
+    uint32_t ckeys[3] = { MESSAGE_KEY_CUSTOM_TOP, MESSAGE_KEY_CUSTOM_BOT, MESSAGE_KEY_CUSTOM_BAN };
+    for (int k = 0; k < 3; k++) {
+      if ((t = dict_find(iter, ckeys[k])) && t->type == TUPLE_CSTRING) {
+        strncpy(s_custom[k], t->value->cstring, CUSTOM_LEN - 1);
+        s_custom[k][CUSTOM_LEN - 1] = '\0';
+        persist_write_string(PERSIST_CUSTOM + k, s_custom[k]);
+        if (s_canvas) layer_mark_dirty(s_canvas);
+      }
+    }
+  }
   // Mouvement du poignet, cycles de complications, période météo, sets de configuration
   {
     if ((t = dict_find(iter, MESSAGE_KEY_WRIST_ACTION))) {
@@ -2911,6 +3036,12 @@ static void load_settings(void) {
   if (s_comp_top < 0 || s_comp_top >= CK_COUNT) s_comp_top = CFG_COMP_TOP;
   if (persist_exists(PERSIST_COMP_BOT)) s_comp_bot = persist_read_int(PERSIST_COMP_BOT);
   if (s_comp_bot < 0 || s_comp_bot >= CK_COUNT) s_comp_bot = CFG_COMP_BOTTOM;
+  for (int k = 0; k < 3; k++) {
+    if (persist_exists(PERSIST_CUSTOM + k)) {
+      persist_read_string(PERSIST_CUSTOM + k, s_custom[k], CUSTOM_LEN);
+      s_custom[k][CUSTOM_LEN - 1] = '\0';
+    }
+  }
   if (persist_exists(PERSIST_PERIOD))   s_period   = persist_read_int(PERSIST_PERIOD);
   if (s_period < 1 || s_period > 4) s_period = 1;
   if (persist_exists(PERSIST_WRIST))    s_wrist    = persist_read_int(PERSIST_WRIST);
