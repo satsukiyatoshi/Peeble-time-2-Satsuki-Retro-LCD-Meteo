@@ -28,6 +28,7 @@
 
 ![SatsukiRetroLCD Screenshot](resources/screenshots/pebble_screenshot_2026-10-13_22-27-11.png)
 
+
 # Satsuki Retro LCD Meteo
 
 A retro digital LCD-inspired watchface designed for the Pebble Time 2.
@@ -61,6 +62,8 @@ Many thanks to the authors of the projects that provided inspiration and a techn
 • Ghost LCD segments for an authentic digital-display look<br>
 • French and English interface<br>
 • Color palette designed for the Pebble Time 2 color display<br>
+• Cycle complication by wrist mouvement<br>
+• Save up to five configuration sets<br>
 
 • Configurable complication (center):
 * steps
@@ -162,7 +165,9 @@ Un grand merci aux auteurs des projets qui ont servi d'inspiration et de base te
 • Unité de distance configurable en kilomètres ou miles<br>
 • Segments LCD fantômes pour renforcer l'aspect écran numérique rétro<br>
 • Interface française et anglaise<br>
-• Couleurs et éléments graphiques pensés pour l'écran couleur de la Pebble Time 2
+• Couleurs et éléments graphiques pensés pour l'écran couleur de la Pebble Time 2<br>
+• Changer de complications par mouvement du poignet<br>
+• Sauvegarder/Charger jusqu'a 5 set de configurations<br>
 
 • Complication configurable (centre) :
 * nombre de pas
