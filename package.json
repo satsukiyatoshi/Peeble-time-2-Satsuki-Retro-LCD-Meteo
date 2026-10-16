@@ -1,7 +1,7 @@
 {
   "name": "satsukiretrolcdmeteo",
   "author": "Satsuki",
-  "version": "1.2.2",
+  "version": "1.3.0",
   "keywords": [
     "pebble-app"
   ],
@@ -254,7 +254,7 @@
       "SUNSET_0",
       "SUNSET_1",
       "SUNSET_2",
-	  "RED_RING_LATERAL",
+      "RED_RING_LATERAL",
       "WEATHER_PERIOD",
       "BATT_STYLE",
       "COMP_TOP",
@@ -264,7 +264,14 @@
       "DAILY_2",
       "DAILY_3",
       "DAILY_4",
-      "DAILY_5"
+      "DAILY_5",
+      "HUMIDITY",
+      "UV_INDEX",
+      "AIR_QUALITY",
+      "WIND_SPEED",
+      "WRIST_ACTION",
+      "CYCLE_DATA",
+      "STATE_PACK"
     ]
   }
 }

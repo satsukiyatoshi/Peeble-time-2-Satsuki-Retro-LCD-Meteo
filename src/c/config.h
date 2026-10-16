@@ -4,7 +4,7 @@
  *
  * La langue, le format de la date et l'unité de température se choisissent dans
  * la page de réglages de l'appli Pebble du téléphone (voir src/pkjs/clay-config.js).
- * Ici, CFG_LANGUAGE, CFG_DATE_MDY, CFG_TIME_12H, CFG_ICON_COLOR, CFG_GHOST_LEVEL, CFG_FONT_STYLE, CFG_COMPLICATION et CFG_DIST_MILES ne sont que les valeurs PAR DÉFAUT, utilisées
+ * Ici, CFG_LANGUAGE, CFG_DATE_MDY, CFG_TIME_12H, CFG_ICON_COLOR, CFG_GHOST_LEVEL, CFG_FONT_STYLE, CFG_COMPLICATION, CFG_DIST_MILES et CFG_WRIST_ACTION ne sont que les valeurs PAR DÉFAUT, utilisées
  * tant que rien n'a été choisi dans cette page. Tout le reste se règle dans ce
  * fichier avant `pebble build`. La fréquence de reprise après échec se règle dans
  * src/pkjs/config.js.
@@ -79,6 +79,14 @@
 // de réglages du téléphone (1 h par défaut) : voir src/pkjs/clay-config.js.
 #define CFG_COMP_TOP           0
 #define CFG_COMP_BOTTOM        0
+
+// ── Mouvement du poignet (remplace les boutons Haut / Bas, inutilisables dans un cadran) ──
+// VALEUR PAR DÉFAUT (la page de réglages du téléphone l'emporte) :
+//   0 = aucune action (la détection de mouvement est alors DÉSACTIVÉE) ;
+//   1 = cycle des complications.
+// Les 5 cycles de complications (numérotés 1 à 5 : case date / rangée du haut / rangée du bas)
+// se règlent dans la page du téléphone.
+#define CFG_WRIST_ACTION       0
 // Calories affichées : 0 = actives seulement ; 1 = actives + au repos.
 #define CFG_CALORIES_TOTAL     0
 // Segments de la pile : 0 = monochrome (segments comme CFG_COLOR_FG, rouges sous 10 %) ;

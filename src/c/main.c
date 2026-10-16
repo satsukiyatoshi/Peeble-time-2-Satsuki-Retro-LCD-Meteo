@@ -39,6 +39,10 @@
 #ifndef CFG_COMP_BOTTOM
 #define CFG_COMP_BOTTOM       0
 #endif
+// Action du mouvement du poignet : 0 = aucune (détection désactivée), 1 = cycle des complications
+#ifndef CFG_WRIST_ACTION
+#define CFG_WRIST_ACTION      0
+#endif
 // Segments de la pile : 0 = monochrome (rouge sous 10 %), 1 = couleur (vert / jaune / rouge)
 #ifndef CFG_BATT_COLOR
 #define CFG_BATT_COLOR        0
@@ -147,6 +151,10 @@ static void init_forecast_keys(void) {
 #define PERSIST_COMP_BOT  11
 #define PERSIST_BATT      12
 #define PERSIST_TEMP_F    13
+#define PERSIST_WRIST     14
+#define PERSIST_CYC_DATA  16     // 5 cycles x 3 emplacements (15 octets)
+#define PERSIST_CYC_IDX   17     // dernier cycle appliqué (-1 = aucun)
+#define PERSIST_PERIOD    19
 
 // ── Prévisions horaires : 2 lignes de 5 colonnes (H+1 … H+10) ────────────
 // Entier reçu : bits 0-6 code météo WMO (127 = inconnu), bit 7 jour,
@@ -213,6 +221,7 @@ static int  s_comp_bot = CFG_COMP_BOTTOM;   // rangée du bas (mêmes choix)
 static int  s_batt_color = CFG_BATT_COLOR;  // segments de la pile : 0 monochrome (rouge < 10 %), 1 couleur (vert / jaune / rouge)
 static bool s_charging   = false;           // en charge : les segments clignotent à la seconde
 
+static char s_toast[24] = "";              // message temporaire (nom du set) à la place de la ville / tendance
 static char s_weather_trend[64] = "METEO"; // « VILLE : TENDANCE » reçu du téléphone
 
 static int  s_steps           = -1;   // -1 = indisponible (affiche -----)
@@ -471,6 +480,15 @@ static void draw_weather_trend(GContext *ctx, GFont font, int y, int W, int H) {
   // (soit 3 px de sécurité en plus des deux côtés)
   int margin = 3;
   int max_w = W - (3 * margin);
+
+  // Message temporaire (nom du set de configuration) : remplace le bandeau quelques secondes
+  if (s_toast[0]) {
+    graphics_context_set_text_color(ctx, GColorYellow);
+    graphics_draw_text(ctx, s_toast, font,
+                       GRect(margin, y, max_w, H - y),
+                       GTextOverflowModeFill, GTextAlignmentCenter, NULL);
+    return;
+  }
 
   // ------------------------------------------------------------
   // Récupération de "VILLE : TENDANCE"
@@ -2322,6 +2340,176 @@ static void update_tick_subscription(void) {
   tick_timer_service_subscribe((s_comp == 4 || s_charging) ? SECOND_UNIT : MINUTE_UNIT, tick_handler);
 }
 
+// ── Mouvement du poignet : cycle des complications ───
+// Les boutons Haut / Bas ne sont pas utilisables dans un cadran : on utilise la détection de
+// secousse / mouvement du poignet (accel_tap_service), abonnée UNIQUEMENT si une action est choisie.
+// Réglages reçus de la page Clay (téléphone → montre) et mémorisés :
+//   WRIST_ACTION : 0 = aucune action (accéléromètre non utilisé), 1 = cycle complications
+//   CYCLE_DATA : 15 octets = 5 cycles (numérotés 1 à 5) × 3 emplacements (case date, rangée haut, rangée bas).
+//       Valeur = complication à afficher, 255 = emplacement inchangé. Un mouvement passe au cycle suivant
+//       (celui qui porte le numéro suivant) ; un cycle dont les 3 emplacements sont à 255 est sauté.
+// Les sets de configuration vivent uniquement sur le téléphone (page de réglages) : « Charger ce set »
+// renvoie simplement les réglages d'affichage du set, la montre n'en garde aucune copie.
+// Après un changement local, la montre renvoie l'état courant au téléphone (STATE_PACK)
+// pour qu'il reste la référence (page de réglages, météo °C/°F, langue de la ville…).
+#define CYC_N         5        // nombre de cycles de complications
+#define CYC_SLOTS     3        // 0 = case date, 1 = rangée haut, 2 = rangée bas
+#define CYC_NONE      255      // emplacement inchangé
+#define WRIST_DEBOUNCE_MS 1500 // délai minimum entre deux mouvements pris en compte
+
+static int      s_wrist    = CFG_WRIST_ACTION;
+static uint8_t  s_cyc_data[CYC_N * CYC_SLOTS];        // [cycle * 3 + emplacement]
+static int      s_cyc_idx  = -1;                      // dernier cycle appliqué
+static uint64_t s_last_flick_ms = 0;
+static int      s_period   = 1;                       // période météo (1..4 h) : sert au téléphone et aux sets
+static AppTimer *s_report_timer = NULL;
+static AppTimer *s_toast_timer  = NULL;
+static int      s_report_tries  = 0;
+
+// État d'affichage sur 28 bits (même format dans index.js : packSettings / applyStateToSettings)
+//   0 langue · 1 date · 2 heure 12 h · 3 icônes couleur · 4-5 ghost · 6 anneau latéral · 7-10 police
+//   11-14 complication · 15 distance en miles · 16 °F · 17 pile couleur · 18-21 rangée haut · 22-25 rangée bas
+//   26-27 période météo - 1
+static uint32_t pack_state(void) {
+  return (uint32_t)(s_lang & 1) | ((uint32_t)(s_date_mdy & 1) << 1) | ((uint32_t)(s_time12 & 1) << 2) |
+         ((uint32_t)(s_icon_col & 1) << 3) | ((uint32_t)(s_ghost & 3) << 4) | ((uint32_t)(r_r_sides & 1) << 6) |
+         ((uint32_t)(s_font_style & 15) << 7) | ((uint32_t)(s_comp & 15) << 11) | ((uint32_t)(s_dist_mi & 1) << 15) |
+         ((uint32_t)(s_temp_f & 1) << 16) | ((uint32_t)(s_batt_color & 1) << 17) |
+         ((uint32_t)(s_comp_top & 15) << 18) | ((uint32_t)(s_comp_bot & 15) << 22) |
+         ((uint32_t)((s_period - 1) & 3) << 26);
+}
+
+static void persist_display_settings(void) {
+  persist_write_int(PERSIST_LANG, s_lang);
+  persist_write_int(PERSIST_DATE_MDY, s_date_mdy);
+  persist_write_int(PERSIST_TIME12, s_time12);
+  persist_write_int(PERSIST_ICON_COL, s_icon_col);
+  persist_write_int(PERSIST_GHOST, s_ghost);
+  persist_write_int(PERSIST_RED_RING, r_r_sides);
+  persist_write_int(PERSIST_FONT_ST, s_font_style);
+  persist_write_int(PERSIST_COMP, s_comp);
+  persist_write_int(PERSIST_DIST_MI, s_dist_mi);
+  persist_write_int(PERSIST_TEMP_F, s_temp_f);
+  persist_write_int(PERSIST_BATT, s_batt_color);
+  persist_write_int(PERSIST_COMP_TOP, s_comp_top);
+  persist_write_int(PERSIST_COMP_BOT, s_comp_bot);
+  persist_write_int(PERSIST_PERIOD, s_period);
+}
+
+// Applique un état complet (set de configuration) : variables, mémorisation, polices, tick
+static void apply_state(uint32_t v) {
+  int old_font = s_font_style;
+  s_lang       = (int)(v & 1);
+  s_date_mdy   = (int)((v >> 1) & 1);
+  s_time12     = (int)((v >> 2) & 1);
+  s_icon_col   = (int)((v >> 3) & 1);
+  s_ghost      = (int)((v >> 4) & 3);      if (s_ghost > 2) s_ghost = 0;
+  r_r_sides    = (int)((v >> 6) & 1);
+  s_font_style = (int)((v >> 7) & 15);     if (s_font_style > 8) s_font_style = 0;
+  s_comp       = (int)((v >> 11) & 15);    if (s_comp > 10) s_comp = 0;
+  s_dist_mi    = (int)((v >> 15) & 1);
+  s_temp_f     = (int)((v >> 16) & 1);
+  s_batt_color = (int)((v >> 17) & 1);
+  s_comp_top   = (int)((v >> 18) & 15);    if (s_comp_top >= CK_COUNT) s_comp_top = 0;
+  s_comp_bot   = (int)((v >> 22) & 15);    if (s_comp_bot >= CK_COUNT) s_comp_bot = 0;
+  s_period     = (int)((v >> 26) & 3) + 1;
+  persist_display_settings();
+  if (old_font != s_font_style && s_canvas) load_dseg_fonts();
+  update_tick_subscription();              // complication « secondes » : tick à la seconde
+  if (s_canvas) layer_mark_dirty(s_canvas);
+}
+
+// ── Compte rendu au téléphone (une seule fois, 1,5 s après le dernier appui) ──
+static void report_cb(void *data) {
+  s_report_timer = NULL;
+  DictionaryIterator *it;
+  if (app_message_outbox_begin(&it) == APP_MSG_OK) {
+    dict_write_int32(it, MESSAGE_KEY_STATE_PACK, (int32_t)pack_state());
+    app_message_outbox_send();
+    s_report_tries = 0;
+  } else if (++s_report_tries < 4) {       // boîte d'envoi occupée : on réessaie
+    s_report_timer = app_timer_register(1000, report_cb, NULL);
+  }
+}
+
+static void schedule_report(void) {
+  if (s_report_timer) app_timer_cancel(s_report_timer);
+  s_report_tries = 0;
+  s_report_timer = app_timer_register(1500, report_cb, NULL);
+}
+
+// ── Message temporaire dans le bandeau du bas ──
+static void toast_hide(void *data) {
+  s_toast_timer = NULL;
+  s_toast[0] = '\0';
+  if (s_canvas) layer_mark_dirty(s_canvas);
+}
+
+static void show_toast(const char *txt) {
+  strncpy(s_toast, txt, sizeof(s_toast) - 1);
+  s_toast[sizeof(s_toast) - 1] = '\0';
+  if (s_toast_timer) app_timer_cancel(s_toast_timer);
+  s_toast_timer = app_timer_register(2500, toast_hide, NULL);
+  if (s_canvas) layer_mark_dirty(s_canvas);
+}
+
+// Un cycle est actif si au moins un de ses 3 emplacements est défini
+static bool cycle_active(int k) {
+  for (int j = 0; j < CYC_SLOTS; j++) if (s_cyc_data[k * CYC_SLOTS + j] != CYC_NONE) return true;
+  return false;
+}
+
+static void cycle_complications(void) {
+  int n_active = 0;
+  for (int k = 0; k < CYC_N; k++) if (cycle_active(k)) n_active++;
+  if (n_active == 0) { show_toast(s_lang == 1 ? "NO CYCLE" : "AUCUN CYCLE"); return; }
+
+  // cycle actif suivant celui déjà appliqué (circulaire)
+  int base = (s_cyc_idx < -1 || s_cyc_idx >= CYC_N) ? -1 : s_cyc_idx;
+  int next = -1;
+  for (int i = 1; i <= CYC_N; i++) {
+    int k = (base + i + CYC_N) % CYC_N;
+    if (cycle_active(k)) { next = k; break; }
+  }
+  if (next < 0) return;
+  s_cyc_idx = next;
+  persist_write_int(PERSIST_CYC_IDX, s_cyc_idx);
+
+  uint8_t side = s_cyc_data[next * CYC_SLOTS + 0];
+  uint8_t top  = s_cyc_data[next * CYC_SLOTS + 1];
+  uint8_t bot  = s_cyc_data[next * CYC_SLOTS + 2];
+  if (side != CYC_NONE && side <= 10)      { s_comp     = side; persist_write_int(PERSIST_COMP, s_comp); }
+  if (top  != CYC_NONE && top  < CK_COUNT) { s_comp_top = top;  persist_write_int(PERSIST_COMP_TOP, s_comp_top); }
+  if (bot  != CYC_NONE && bot  < CK_COUNT) { s_comp_bot = bot;  persist_write_int(PERSIST_COMP_BOT, s_comp_bot); }
+
+  update_tick_subscription();
+  char buf[24];
+  snprintf(buf, sizeof(buf), "CYCLE %d/%d", next + 1, CYC_N);
+  show_toast(buf);
+  if (s_canvas) layer_mark_dirty(s_canvas);
+  schedule_report();
+}
+
+static void do_action(int action) {
+  if (action == 1) cycle_complications();
+}
+
+// Mouvement du poignet / secousse : une action par mouvement, avec anti-rebond
+static void tap_handler(AccelAxisType axis, int32_t direction) {
+  time_t sec; uint16_t ms;
+  time_ms(&sec, &ms);
+  uint64_t now = (uint64_t)sec * 1000u + ms;
+  if (s_last_flick_ms && now - s_last_flick_ms < WRIST_DEBOUNCE_MS) return;
+  s_last_flick_ms = now;
+  do_action(s_wrist);
+}
+
+// Détection abonnée seulement si une action est choisie (sinon l'accéléromètre n'est pas sollicité)
+static void refresh_wrist(void) {
+  accel_tap_service_unsubscribe();
+  if (s_wrist) accel_tap_service_subscribe(tap_handler);
+}
+
 // ── AppMessage : prévisions, tendance météo et réglages de la page Clay ──
 static void inbox_received(DictionaryIterator *iter, void *context) {
   Tuple *t;
@@ -2393,6 +2581,29 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
     s_comp_bot = (int)t->value->int32;
     if (s_comp_bot < 0 || s_comp_bot >= CK_COUNT) s_comp_bot = 0;
     persist_write_int(PERSIST_COMP_BOT, s_comp_bot);
+  }
+  // Mouvement du poignet, cycles de complications, période météo, sets de configuration
+  {
+    if ((t = dict_find(iter, MESSAGE_KEY_WRIST_ACTION))) {
+      s_wrist = (int)t->value->int32; if (s_wrist < 0 || s_wrist > 1) s_wrist = 0;
+      persist_write_int(PERSIST_WRIST, s_wrist);
+      refresh_wrist();
+    }
+    if ((t = dict_find(iter, MESSAGE_KEY_CYCLE_DATA)) && t->type == TUPLE_BYTE_ARRAY) {
+      uint8_t nd[CYC_N * CYC_SLOTS];
+      memset(nd, CYC_NONE, sizeof(nd));
+      memcpy(nd, t->value->data, t->length < sizeof(nd) ? t->length : sizeof(nd));
+      if (memcmp(nd, s_cyc_data, sizeof(nd)) != 0) {      // cycles modifiés : on repart du cycle 1
+        memcpy(s_cyc_data, nd, sizeof(nd));
+        s_cyc_idx = -1;
+        persist_write_int(PERSIST_CYC_IDX, s_cyc_idx);
+      }
+      persist_write_data(PERSIST_CYC_DATA, s_cyc_data, sizeof(s_cyc_data));
+    }
+    if ((t = dict_find(iter, MESSAGE_KEY_WEATHER_PERIOD))) {
+      s_period = (int)t->value->int32; if (s_period < 1 || s_period > 4) s_period = 1;
+      persist_write_int(PERSIST_PERIOD, s_period);
+    }
   }
   // Tendance sur 6 jours : code, max, min, jour du mois, jour de la semaine
   for (int i = 0; i < 6; i++) {
@@ -2539,6 +2750,15 @@ static void load_settings(void) {
   if (s_comp_top < 0 || s_comp_top >= CK_COUNT) s_comp_top = CFG_COMP_TOP;
   if (persist_exists(PERSIST_COMP_BOT)) s_comp_bot = persist_read_int(PERSIST_COMP_BOT);
   if (s_comp_bot < 0 || s_comp_bot >= CK_COUNT) s_comp_bot = CFG_COMP_BOTTOM;
+  if (persist_exists(PERSIST_PERIOD))   s_period   = persist_read_int(PERSIST_PERIOD);
+  if (s_period < 1 || s_period > 4) s_period = 1;
+  if (persist_exists(PERSIST_WRIST))    s_wrist    = persist_read_int(PERSIST_WRIST);
+  if (s_wrist < 0 || s_wrist > 1)       s_wrist    = CFG_WRIST_ACTION;
+  memset(s_cyc_data, CYC_NONE, sizeof(s_cyc_data));
+  if (persist_exists(PERSIST_CYC_DATA) && persist_get_size(PERSIST_CYC_DATA) == (int)sizeof(s_cyc_data))
+    persist_read_data(PERSIST_CYC_DATA, s_cyc_data, sizeof(s_cyc_data));
+  if (persist_exists(PERSIST_CYC_IDX))  s_cyc_idx  = persist_read_int(PERSIST_CYC_IDX);
+  if (s_cyc_idx < -1 || s_cyc_idx >= CYC_N) s_cyc_idx = -1;
 }
 
 static void init(void) {
@@ -2559,6 +2779,7 @@ static void init(void) {
   });
   window_stack_push(s_window, true);
   update_tick_subscription();
+  refresh_wrist();   // mouvement du poignet (seulement si une action est choisie)
   connection_service_subscribe((ConnectionHandlers){
     .pebble_app_connection_handler = app_connection_handler
   });

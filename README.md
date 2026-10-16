@@ -1,32 +1,32 @@
-![SatsukiRetroLCD Screenshot](pebble_screenshot_2026-10-09_13-57-28.png)
+![SatsukiRetroLCD Screenshot](resources/screenshots/pebble_screenshot_2026-10-09_13-57-28.png)
 
-![SatsukiRetroLCD Screenshot](pebble_screenshot_2026-10-09_13-59-41.png)
+![SatsukiRetroLCD Screenshot](resources/screenshots/pebble_screenshot_2026-10-09_13-59-41.png)
 
-![SatsukiRetroLCD Screenshot](pebble_screenshot_2026-10-09_14-01-00.png)
+![SatsukiRetroLCD Screenshot](resources/screenshots/pebble_screenshot_2026-10-09_14-01-00.png)
 
-![SatsukiRetroLCD Screenshot](pebble_screenshot_2026-10-09_14-02-11.png)
+![SatsukiRetroLCD Screenshot](resources/screenshots/pebble_screenshot_2026-10-09_14-02-11.png)
 
-![SatsukiRetroLCD Screenshot](pebble_screenshot_2026-10-10_12-06-37.png)
+![SatsukiRetroLCD Screenshot](resources/screenshots/pebble_screenshot_2026-10-10_12-06-37.png)
 
-![SatsukiRetroLCD Screenshot](pebble_screenshot_2026-10-10_12-07-37.png)
+![SatsukiRetroLCD Screenshot](resources/screenshots/pebble_screenshot_2026-10-10_12-07-37.png)
 
-![SatsukiRetroLCD Screenshot](pebble_screenshot_2026-10-10_12-11-06.png)
+![SatsukiRetroLCD Screenshot](resources/screenshots/pebble_screenshot_2026-10-10_12-11-06.png)
 
-![SatsukiRetroLCD Screenshot](pebble_screenshot_2026-10-10_12-23-50.png)
+![SatsukiRetroLCD Screenshot](resources/screenshots/pebble_screenshot_2026-10-10_12-23-50.png)
 
-![SatsukiRetroLCD Screenshot](pebble_screenshot_2026-10-10_12-24-52.png)
+![SatsukiRetroLCD Screenshot](resources/screenshots/pebble_screenshot_2026-10-10_12-24-52.png)
 
-![SatsukiRetroLCD Screenshot](pebble_screenshot_2026-10-10_19-25-12.png)
+![SatsukiRetroLCD Screenshot](resources/screenshots/pebble_screenshot_2026-10-10_19-25-12.png)
 
-![SatsukiRetroLCD Screenshot](pebble_screenshot_2026-10-10_19-25-46.png)
+![SatsukiRetroLCD Screenshot](resources/screenshots/pebble_screenshot_2026-10-10_19-25-46.png)
 
-![SatsukiRetroLCD Screenshot](pebble_screenshot_2026-10-10_19-47-26.png)
+![SatsukiRetroLCD Screenshot](resources/screenshots/pebble_screenshot_2026-10-10_19-47-26.png)
 
-![SatsukiRetroLCD Screenshot](pebble_screenshot_2026-10-13_22-21-08.png)
+![SatsukiRetroLCD Screenshot](resources/screenshots/pebble_screenshot_2026-10-13_22-21-08.png)
 
-![SatsukiRetroLCD Screenshot](pebble_screenshot_2026-10-13_22-22-49.png)
+![SatsukiRetroLCD Screenshot](resources/screenshots/pebble_screenshot_2026-10-13_22-22-49.png)
 
-![SatsukiRetroLCD Screenshot](pebble_screenshot_2026-10-13_22-27-11.png)
+![SatsukiRetroLCD Screenshot](resources/screenshots/pebble_screenshot_2026-10-13_22-27-11.png)
 
 # Satsuki Retro LCD Meteo
 

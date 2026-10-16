@@ -2,199 +2,327 @@
  * Satsuki Retro LCD Meteo – page de réglages (Clay), ouverte depuis l'appli Pebble du
  * téléphone : Watchfaces > Satsuki Retro LCD Meteo > Réglages.
  *
- * Tous les textes affichés sont bilingues « français / English ».
+ * La page est monolingue : module.exports est une FONCTION qui reçoit la langue (0 = français,
+ * 1 = English) et renvoie la configuration dans cette seule langue. index.js l'appelle à chaque
+ * ouverture (buildClayConfig) avec le réglage LANGUAGE mémorisé ; ce réglage est le tout premier
+ * de la page et sert à la fois pour la montre et pour la page (il prend effet à la réouverture).
  *
- * Les « defaultValue » ci-dessous doivent rester en accord avec les valeurs par
- * défaut de la montre (CFG_* dans src/c/config.h) et de index.js :
- *   langue "0" = français, date "0" = JJ-MM, heure "0" = 24 h,
- *   icônes "1" = couleurs, ghost "0" = défaut, chiffres "0" = 7 segments Classic, complication "0" = nombre de pas,
- *   unité de distance "0" = kilomètres, température "0" = °C,
- *   période météo "1" = 1 h, complications du haut et du bas "0" = météo horaire.
+ * Les « defaultValue » ci-dessous doivent rester en accord avec les valeurs par défaut de la montre
+ * (CFG_* dans src/c/config.h) et de index.js :
+ *   langue "0" = français, date "0" = JJ-MM, heure "0" = 24 h, icônes "1" = couleurs, ghost "0" = défaut,
+ *   chiffres "0" = 7 segments Classic, complication "0" = nombre de pas, unité de distance "0" = kilomètres,
+ *   température "0" = °C, période météo "1" = 1 h, rangées haut et bas "0" = météo horaire,
+ *   mouvement du poignet "0" = aucune action, cycles 1 à 5 : tout « Inchangé » ("-1").
+ *
+ * Organisation : Langue / Affichage / Unités / Complications / Mouvement du poignet + cycles / Sets.
+ * Les éléments du groupe "cycles" ne sont visibles que si « Mouvement du poignet » = cycle des
+ * complications (clayCustom dans index.js).
+ * Les champs SET_NAME_NEW / SET_REPLACE / SET_DELETE / SET_LOAD / SET_LOAD_FLAG sont traités puis effacés
+ * par index.js (processSetActions) ; SET_LOAD, SET_REPLACE et SET_DELETE sont reconstruits (et retirés
+ * quand ils ne servent à rien) à chaque ouverture par buildClayConfig.
  */
-module.exports = [
-  { "type": "heading", "defaultValue": "Satsuki Retro LCD Meteo" },
-  { "type": "text", "defaultValue": "Réglages / Settings" },
-  {
-    "type": "section",
-    "items": [
-      {
-        "type": "select",
-        "messageKey": "LANGUAGE",
-        "label": "Langue / Language",
-        "defaultValue": "0",
-        "options": [
-          { "label": "Français / French", "value": "0" },
-          { "label": "English / Anglais", "value": "1" }
-        ]
-      },
-      {
-        "type": "select",
-        "messageKey": "DATE_FORMAT",
-        "label": "Format de la date / Date format",
-        "defaultValue": "0",
-        "options": [
-          { "label": "JJ-MM / DD-MM (07-10)", "value": "0" },
-          { "label": "MM-JJ / MM-DD (10-07)", "value": "1" }
-        ]
-      },
-      {
-        "type": "select",
-        "messageKey": "TIME_FORMAT",
-        "label": "Format de l'heure / Time format",
-        "defaultValue": "0",
-        "options": [
-          { "label": "24 h", "value": "0" },
-          { "label": "12 h (A / P)", "value": "1" }
-        ]
-      },
-      {
-        "type": "select",
-        "messageKey": "ICON_STYLE",
-        "label": "Icônes météo / Weather icons",
-        "defaultValue": "1",
-        "options": [
-          { "label": "Monochrome (jaune / yellow)", "value": "0" },
-          { "label": "Couleurs / Colors",           "value": "1" }
-        ]
-      },
-      {
-        "type": "select",
-        "messageKey": "GHOST_LEVEL",
-        "label": "Segments éteints (ghost) / Unlit segments (ghost)",
-        "defaultValue": "0",
-        "options": [
-          { "label": "Défaut / Default",    "value": "0" },
-          { "label": "Léger / Light",       "value": "1" },
-          { "label": "Désactivé / Off",     "value": "2" }
-        ]
-      },
-	  {
-        "type": "select",
-        "messageKey": "RED_RING_LATERAL",
-        "label": "Bandes rouges latérales / Red side stripes",
-        "defaultValue": "0",
-        "options": [
-          { "label": "Afficher / Show", "value": "1" },
-          { "label": "Cacher / Hide", "value": "0" }
-        ]
-      },
-      {
-        "type": "select",
-        "messageKey": "FONT_STYLE",
-        "label": "Style des chiffres / Digit style",
-        "defaultValue": "0",
-        "options": [
-          { "label": "7 segments : Classic (défaut / default)", "value": "0" },
-          { "label": "7 segments : Classic Mini",               "value": "1" },
-          { "label": "7 segments : Modern",                     "value": "2" },
-          { "label": "7 segments : Modern Mini",                "value": "3" },
-          { "label": "14 segments : Classic",                   "value": "4" },
-          { "label": "14 segments : Classic Mini",              "value": "5" },
-          { "label": "14 segments : Modern",                    "value": "6" },
-          { "label": "14 segments : Modern Mini",               "value": "7" },
-          { "label": "7 segments : spécial D / special D",      "value": "8" }
-        ]
-      },
-      {
-        "type": "select",
-        "messageKey": "COMPLICATION",
-        "label": "Complication (case à côté de la date / box next to the date)",
-        "defaultValue": "0",
-        "options": [
-          { "label": "Pas / Steps",                                 "value": "0" },
-          { "label": "Fréquence cardiaque / Heart rate",            "value": "1" },
-          { "label": "Distance parcourue / Distance walked",        "value": "2" },
-          { "label": "Lever / coucher du soleil / Sunrise / sunset", "value": "3" },
-          { "label": "Secondes / Seconds",                          "value": "4" },
-          { "label": "Pourcentage de batterie / Battery percentage", "value": "5" },
-          { "label": "Températures min / max du jour / Today's min / max temperature", "value": "6" },
-          { "label": "Humidité / Humidity",                          "value": "7" },
-          { "label": "Indice UV / UV index",                         "value": "8" },
-          { "label": "Qualité de l'air / Air quality",               "value": "9" },
-          { "label": "Vitesse du vent / Wind speed",                 "value": "10" }
-        ]
-      },
-      {
-        "type": "select",
-        "messageKey": "DIST_UNIT",
-        "label": "Unité de distance (complication Distance) / Distance unit (Distance complication)",
-        "defaultValue": "0",
-        "options": [
-          { "label": "Kilomètres / Kilometers", "value": "0" },
-          { "label": "Miles",                   "value": "1" }
-        ]
-      },
-      {
-        "type": "select",
-        "messageKey": "TEMP_UNIT",
-        "label": "Unité de température / Temperature unit",
-        "defaultValue": "0",
-        "options": [
-          { "label": "°C (Celsius)",    "value": "0" },
-          { "label": "°F (Fahrenheit)", "value": "1" }
-        ]
-      },
-      {
-        "type": "select",
-        "messageKey": "BATT_STYLE",
-        "label": "Segments de la pile et icônes d'indicateurs / Battery segments & indicator icons",
-        "defaultValue": "0",
-        "options": [
-          { "label": "Monochrome (rouge < 10 %) / Monochrome (red < 10%)",              "value": "0" },
-          { "label": "Couleur (vert / jaune / rouge) / Color (green / yellow / red)",    "value": "1" }
-        ]
-      },
-      {
-        "type": "select",
-        "messageKey": "WEATHER_PERIOD",
-        "label": "Période météo (météo horaire) / Weather period (hourly weather)",
-        "defaultValue": "1",
-        "options": [
-          { "label": "1 h (défaut / default)", "value": "1" },
-          { "label": "2 h", "value": "2" },
-          { "label": "3 h", "value": "3" },
-          { "label": "4 h", "value": "4" }
-        ]
-      },
-      {
-        "type": "select",
-        "messageKey": "COMP_TOP",
-        "label": "Complication au-dessus de l'heure / Complication above the time",
-        "defaultValue": "0",
-        "options": [
-          { "label": "Météo horaire / Hourly weather",                         "value": "0" },
-          { "label": "Tendance météo 3 jours (6 si les 2) / 3-day trend (6 if both)", "value": "4" },
-          { "label": "Lever + coucher du soleil / Sunrise + sunset",           "value": "3" },
-          { "label": "Rythme cardiaque + distance / Heart rate + distance",    "value": "1" },
-          { "label": "Rythme cardiaque + calories / Heart rate + calories",    "value": "5" },
-          { "label": "Rythme cardiaque + pas / Heart rate + steps",            "value": "6" },
-          { "label": "Distance + calories / Distance + calories",              "value": "7" },
-          { "label": "Pas + distance / Steps + distance",                      "value": "8" },
-          { "label": "Calories + pas / Calories + steps",                      "value": "2" },
-          { "label": "Indice UV + qualité de l'air / UV index + air quality", "value": "9" },
-          { "label": "Humidité + vitesse du vent / Humidity + wind speed",     "value": "10" }
-        ]
-      },
-      {
-        "type": "select",
-        "messageKey": "COMP_BOTTOM",
-        "label": "Complication sous l'heure / Complication below the time",
-        "defaultValue": "0",
-        "options": [
-          { "label": "Météo horaire / Hourly weather",                         "value": "0" },
-          { "label": "Tendance météo 3 jours (6 si les 2) / 3-day trend (6 if both)", "value": "4" },
-          { "label": "Lever + coucher du soleil / Sunrise + sunset",           "value": "3" },
-          { "label": "Rythme cardiaque + distance / Heart rate + distance",    "value": "1" },
-          { "label": "Rythme cardiaque + calories / Heart rate + calories",    "value": "5" },
-          { "label": "Rythme cardiaque + pas / Heart rate + steps",            "value": "6" },
-          { "label": "Distance + calories / Distance + calories",              "value": "7" },
-          { "label": "Pas + distance / Steps + distance",                      "value": "8" },
-          { "label": "Calories + pas / Calories + steps",                      "value": "2" },
-          { "label": "Indice UV + qualité de l'air / UV index + air quality", "value": "9" },
-          { "label": "Humidité + vitesse du vent / Humidity + wind speed",     "value": "10" }
-        ]
-      }
-    ]
-  },
-  { "type": "submit", "defaultValue": "Enregistrer / Save" }
-];
+module.exports = function(lang) {
+  var EN = (lang === 1);
+  function t(fr, en) { return EN ? en : fr; }
+  function opt(value, fr, en) { return { "label": t(fr, en), "value": String(value) }; }
+
+  // Complication de la case à côté de la date : valeurs 0..10 (COMPLICATION)
+  var SIDE_OPTS = [
+    opt(0,  "Pas",                                      "Steps"),
+    opt(1,  "Fréquence cardiaque",                      "Heart rate"),
+    opt(2,  "Distance parcourue",                       "Distance walked"),
+    opt(3,  "Lever / coucher du soleil",                "Sunrise / sunset"),
+    opt(4,  "Secondes",                                 "Seconds"),
+    opt(5,  "Pourcentage de batterie",                  "Battery percentage"),
+    opt(6,  "Températures min / max du jour",           "Today's min / max temperature"),
+    opt(7,  "Humidité",                                 "Humidity"),
+    opt(8,  "Indice UV",                                "UV index"),
+    opt(9,  "Qualité de l'air",                         "Air quality"),
+    opt(10, "Vitesse du vent",                          "Wind speed")
+  ];
+  // Complications des rangées au-dessus / sous l'heure : valeurs 0..10 (COMP_TOP / COMP_BOTTOM), même ordre que CK_* dans main.c
+  var ROW_OPTS = [
+    opt(0,  "Météo horaire",                            "Hourly weather"),
+    opt(4,  "Tendance météo 3 jours (6 si les 2 rangées)", "3-day weather trend (6 if both rows)"),
+    opt(3,  "Lever + coucher du soleil",                "Sunrise + sunset"),
+    opt(1,  "Rythme cardiaque + distance",              "Heart rate + distance"),
+    opt(5,  "Rythme cardiaque + calories",              "Heart rate + calories"),
+    opt(6,  "Rythme cardiaque + pas",                   "Heart rate + steps"),
+    opt(7,  "Distance + calories",                      "Distance + calories"),
+    opt(8,  "Pas + distance",                           "Steps + distance"),
+    opt(2,  "Calories + pas",                           "Calories + steps"),
+    opt(9,  "Indice UV + qualité de l'air",             "UV index + air quality"),
+    opt(10, "Humidité + vitesse du vent",               "Humidity + wind speed")
+  ];
+  var UNCHANGED = opt(-1, "— Inchangé", "— Unchanged");
+
+  // Les 5 cycles : cycle n°k = une complication pour la case date, une pour la rangée du haut, une pour
+  // la rangée du bas (« Inchangé » = l'emplacement ne bouge pas). Clés CYC1_SIDE … CYC5_BOT.
+  function cycleItems() {
+    var items = [
+      { "type": "heading", "size": 4, "group": "cycles", "defaultValue": t("Cycles de complications", "Complication cycles") },
+      { "type": "text", "group": "cycles", "defaultValue": t(
+          "Chaque mouvement du poignet applique le cycle suivant (1 → 2 → … → 5 → 1). « Inchangé » : l'emplacement ne bouge pas ; un cycle entièrement « Inchangé » est sauté.",
+          "Each wrist movement applies the next cycle (1 → 2 → … → 5 → 1). « Unchanged »: the slot stays as is; a cycle that is entirely « Unchanged » is skipped.") }
+    ];
+    for (var k = 1; k <= 5; k++) {
+      items.push({ "type": "heading", "size": 5, "group": "cycles", "defaultValue": t("Cycle ", "Cycle ") + k });
+      items.push({ "type": "select", "group": "cycles", "messageKey": "CYC" + k + "_SIDE", "label": t("Case à côté de la date", "Box next to the date"),
+                   "defaultValue": "-1", "options": [UNCHANGED].concat(SIDE_OPTS) });
+      items.push({ "type": "select", "group": "cycles", "messageKey": "CYC" + k + "_TOP",  "label": t("Au-dessus de l'heure", "Above the time"),
+                   "defaultValue": "-1", "options": [UNCHANGED].concat(ROW_OPTS) });
+      items.push({ "type": "select", "group": "cycles", "messageKey": "CYC" + k + "_BOT",  "label": t("Sous l'heure", "Below the time"),
+                   "defaultValue": "-1", "options": [UNCHANGED].concat(ROW_OPTS) });
+    }
+    return items;
+  }
+
+  return [
+    { "type": "heading", "defaultValue": "Satsuki Retro LCD Meteo" },
+
+    // ── Langue (toujours en premier) ──────────────────────────────────────
+    {
+      "type": "section",
+      "items": [
+        {
+          "type": "select",
+          "messageKey": "LANGUAGE",
+          "label": "Langue / Language",
+          "description": t("Langue de la montre et de cette page. La page change après « Enregistrer » et réouverture.",
+                           "Language of the watch and of this page. The page changes after « Save » and reopening."),
+          "defaultValue": "0",
+          "options": [
+            { "label": "Français", "value": "0" },
+            { "label": "English",  "value": "1" }
+          ]
+        }
+      ]
+    },
+
+    // ── Affichage ─────────────────────────────────────────────────────────
+    {
+      "type": "section",
+      "items": [
+        { "type": "heading", "size": 4, "defaultValue": t("Affichage", "Display") },
+        {
+          "type": "select",
+          "messageKey": "DATE_FORMAT",
+          "label": t("Format de la date", "Date format"),
+          "defaultValue": "0",
+          "options": [
+            opt(0, "JJ-MM (07-10)", "DD-MM (07-10)"),
+            opt(1, "MM-JJ (10-07)", "MM-DD (10-07)")
+          ]
+        },
+        {
+          "type": "select",
+          "messageKey": "TIME_FORMAT",
+          "label": t("Format de l'heure", "Time format"),
+          "defaultValue": "0",
+          "options": [
+            opt(0, "24 h", "24 h"),
+            opt(1, "12 h (A / P)", "12 h (A / P)")
+          ]
+        },
+        {
+          "type": "select",
+          "messageKey": "FONT_STYLE",
+          "label": t("Style des chiffres", "Digit style"),
+          "defaultValue": "0",
+          "options": [
+            opt(0, "7 segments : Classic (défaut)", "7 segments: Classic (default)"),
+            opt(1, "7 segments : Classic Mini",     "7 segments: Classic Mini"),
+            opt(2, "7 segments : Modern",           "7 segments: Modern"),
+            opt(3, "7 segments : Modern Mini",      "7 segments: Modern Mini"),
+            opt(4, "14 segments : Classic",         "14 segments: Classic"),
+            opt(5, "14 segments : Classic Mini",    "14 segments: Classic Mini"),
+            opt(6, "14 segments : Modern",          "14 segments: Modern"),
+            opt(7, "14 segments : Modern Mini",     "14 segments: Modern Mini"),
+            opt(8, "7 segments : spécial D",        "7 segments: special D")
+          ]
+        },
+        {
+          "type": "select",
+          "messageKey": "ICON_STYLE",
+          "label": t("Icônes météo", "Weather icons"),
+          "defaultValue": "1",
+          "options": [
+            opt(0, "Monochrome (jaune)", "Monochrome (yellow)"),
+            opt(1, "Couleurs",           "Colors")
+          ]
+        },
+        {
+          "type": "select",
+          "messageKey": "BATT_STYLE",
+          "label": t("Pile et icônes d'indicateurs", "Battery & indicator icons"),
+          "description": t("Segments de la pile et icônes des complications (humidité, UV, air, vent).",
+                           "Battery segments and complication icons (humidity, UV, air, wind)."),
+          "defaultValue": "0",
+          "options": [
+            opt(0, "Monochrome (rouge < 10 %)",             "Monochrome (red < 10%)"),
+            opt(1, "Couleur (vert / jaune / rouge)",        "Color (green / yellow / red)")
+          ]
+        },
+        {
+          "type": "select",
+          "messageKey": "GHOST_LEVEL",
+          "label": t("Segments éteints (ghost)", "Unlit segments (ghost)"),
+          "defaultValue": "0",
+          "options": [
+            opt(0, "Défaut",   "Default"),
+            opt(1, "Léger",    "Light"),
+            opt(2, "Désactivé", "Off")
+          ]
+        },
+        {
+          "type": "select",
+          "messageKey": "RED_RING_LATERAL",
+          "label": t("Bandes rouges latérales", "Red side stripes"),
+          "defaultValue": "0",
+          "options": [
+            opt(1, "Afficher", "Show"),
+            opt(0, "Cacher",   "Hide")
+          ]
+        }
+      ]
+    },
+
+    // ── Unités ────────────────────────────────────────────────────────────
+    {
+      "type": "section",
+      "items": [
+        { "type": "heading", "size": 4, "defaultValue": t("Unités", "Units") },
+        {
+          "type": "select",
+          "messageKey": "TEMP_UNIT",
+          "label": t("Température", "Temperature"),
+          "defaultValue": "0",
+          "options": [
+            opt(0, "°C (Celsius)",    "°C (Celsius)"),
+            opt(1, "°F (Fahrenheit)", "°F (Fahrenheit)")
+          ]
+        },
+        {
+          "type": "select",
+          "messageKey": "DIST_UNIT",
+          "label": t("Distance", "Distance"),
+          "description": t("Pour les complications « distance » et « vitesse du vent ».",
+                           "For the « distance » and « wind speed » complications."),
+          "defaultValue": "0",
+          "options": [
+            opt(0, "Kilomètres", "Kilometers"),
+            opt(1, "Miles",      "Miles")
+          ]
+        }
+      ]
+    },
+
+    // ── Complications ─────────────────────────────────────────────────────
+    {
+      "type": "section",
+      "items": [
+        { "type": "heading", "size": 4, "defaultValue": t("Complications", "Complications") },
+        {
+          "type": "select",
+          "messageKey": "COMPLICATION",
+          "label": t("Case à côté de la date", "Box next to the date"),
+          "defaultValue": "0",
+          "options": SIDE_OPTS
+        },
+        {
+          "type": "select",
+          "messageKey": "COMP_TOP",
+          "label": t("Au-dessus de l'heure", "Above the time"),
+          "defaultValue": "0",
+          "options": ROW_OPTS
+        },
+        {
+          "type": "select",
+          "messageKey": "COMP_BOTTOM",
+          "label": t("Sous l'heure", "Below the time"),
+          "defaultValue": "0",
+          "options": ROW_OPTS
+        },
+        {
+          "type": "select",
+          "messageKey": "WEATHER_PERIOD",
+          "label": t("Période de la météo horaire", "Hourly weather period"),
+          "description": t("Écart entre deux colonnes de la météo horaire.", "Gap between two columns of the hourly weather."),
+          "defaultValue": "1",
+          "options": [
+            opt(1, "1 h (défaut)", "1 h (default)"),
+            opt(2, "2 h", "2 h"),
+            opt(3, "3 h", "3 h"),
+            opt(4, "4 h", "4 h")
+          ]
+        }
+      ]
+    },
+
+    // ── Mouvement du poignet + cycles ─────────────────────────────────────
+    {
+      "type": "section",
+      "items": [
+        { "type": "heading", "size": 4, "defaultValue": t("Mouvement du poignet", "Wrist movement") },
+        {
+          "type": "select",
+          "messageKey": "WRIST_ACTION",
+          "label": t("Action d'un mouvement du poignet", "Wrist movement action"),
+          "description": t("Les boutons Haut / Bas sont réservés par le système dans un cadran. La détection de mouvement n'est activée que si une action est choisie.",
+                           "Up / Down buttons are reserved by the system in a watchface. Motion detection is only enabled when an action is chosen."),
+          "defaultValue": "0",
+          "options": [
+            opt(0, "Aucune (détection coupée)",  "None (detection off)"),
+            opt(1, "Cycle des complications",    "Cycle complications")
+          ]
+        }
+      ].concat(cycleItems())
+    },
+
+    // ── Sets de configuration ─────────────────────────────────────────────
+    {
+      "type": "section",
+      "items": [
+        { "type": "heading", "size": 4, "defaultValue": t("Sets de configuration", "Configuration sets") },
+        { "type": "text", "id": "setsInfo", "defaultValue": "—" },
+        { "type": "text", "defaultValue": t(
+            "Un set mémorise les réglages d'affichage de cette page et les cycles de complications (pas l'action du mouvement du poignet). Un nom déjà utilisé met à jour le set existant ; 5 sets maximum.",
+            "A set stores the display settings of this page and the complication cycles (not the wrist movement action). An existing name updates that set; 5 sets maximum.") },
+        {
+          "type": "input",
+          "messageKey": "SET_NAME_NEW",
+          "label": t("Enregistrer les réglages actuels sous le nom", "Save current settings as"),
+          "description": t("Vide = ne pas enregistrer. 14 caractères max, majuscules sans accent.",
+                           "Empty = do not save. 14 chars max, uppercase, no accents."),
+          "defaultValue": "",
+          "attributes": { "placeholder": "SPORT", "limit": 14, "type": "text" }
+        },
+        {
+          "type": "select",
+          "messageKey": "SET_REPLACE",
+          "label": t("Sets pleins : remplacer", "Sets full: replace"),
+          "defaultValue": "-1",
+          "options": [ opt(-1, "Ne pas remplacer", "Do not replace") ]
+        },
+        {
+          "type": "select",
+          "messageKey": "SET_LOAD",
+          "label": t("Set à charger", "Set to load"),
+          "defaultValue": "-1",
+          "options": [ opt(-1, "— Choisir un set", "— Choose a set") ]
+        },
+        { "type": "button", "id": "setLoadBtn", "primary": false, "defaultValue": t("Charger ce set", "Load this set") },
+        { "type": "input", "messageKey": "SET_LOAD_FLAG", "label": "", "defaultValue": "" },
+        {
+          "type": "select",
+          "messageKey": "SET_DELETE",
+          "label": t("Supprimer un set", "Delete a set"),
+          "defaultValue": "-1",
+          "options": [ opt(-1, "Aucun", "None") ]
+        }
+      ]
+    },
+
+    { "type": "submit", "defaultValue": t("Enregistrer", "Save") }
+  ];
+};
