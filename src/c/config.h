@@ -80,6 +80,16 @@
 #define CFG_COMP_TOP           0
 #define CFG_COMP_BOTTOM        0
 
+// ── Localisations (aucun réglage ici : tout se fait dans la page de réglages du téléphone) ──
+// Un seul cadre « Localisations » : on choisit d'où vient la météo de la case à côté de la date (n° 1), de la rangée du
+// haut (n° 2) et de la rangée du bas (n° 3) — position GPS actuelle ou l'une des 5 localisations enregistrées (une
+// ligne chacune : « Ville, Pays », coordonnées, ou « GPS »). Si le GPS est indisponible, la dernière position connue
+// est utilisée. La montre garde 3 jeux de données (case, haut, bas) ; le téléphone n'envoie qu'un message par
+// localisation réellement affichée (voir src/pkjs/index.js). Si les deux rangées viennent de localisations
+// différentes, chacune affiche le début de ses propres données (H+1…H+5, J…J+2) au lieu de se suivre.
+// Bandeau du bas (sans réglage) : « VILLE : TENDANCE » si tous les affichages météo partagent la même localisation ;
+// sinon les numéros d'affichage suivis de leur ville, ex. « 1|2 BORDEAUX 3 PARIS » (noms raccourcis au besoin).
+
 // ── Mouvement du poignet (remplace les boutons Haut / Bas, inutilisables dans un cadran) ──
 // VALEUR PAR DÉFAUT (la page de réglages du téléphone l'emporte) :
 //   0 = aucune action (la détection de mouvement est alors DÉSACTIVÉE) ;

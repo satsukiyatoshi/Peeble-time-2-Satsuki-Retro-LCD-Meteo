@@ -2,14 +2,25 @@
  * Satsuki Retro LCD Meteo – code côté téléphone
  * Récupère les prévisions Open-Meteo et les envoie à la montre.
  * Réglages : page de configuration Clay (langue, format de date, unité de
- * température ; voir clay-config.js) et config.js (reprise après échec).
+ * température, localisations ; voir clay-config.js) et config.js (reprise après échec).
+ *
+ * Localisations : jusqu'à 5 localisations enregistrées, une ligne chacune dans la page de réglages (« Ville, Pays »,
+ * « latitude, longitude » ou « GPS » = position actuelle). La case à côté de la date (n° 1), la rangée du haut (n° 2)
+ * et la rangée du bas (n° 3) choisissent chacune leur localisation (position actuelle ou l'une des 5). Si le GPS est
+ * indisponible, la dernière position connue est utilisée. Au rafraîchissement, UNE seule requête est faite par
+ * localisation réellement affichée (rien pour une localisation que personne n'affiche ni pour une complication sans
+ * météo) ; le résultat est mis en cache par localisation et envoyé dans un seul message avec le masque des
+ * emplacements concernés (WX_SLOTS).
+ * Bandeau du bas (WEATHER_TREND, aucun réglage) : si tous les affichages météo partagent la même localisation →
+ * « VILLE : TENDANCE » ; sinon « #1|2 BORDEAUX;3 PARIS » (le « # » annonce ce format à la montre, qui ajuste les noms
+ * à la largeur disponible).
  *
  * La montre reçoit 10 créneaux météo : à partir de la prochaine heure pleine locale, tous
  * les 1, 2, 3 ou 4 h selon la « période météo » choisie dans Clay
  * (ex. à 13h33, période 1 h : 14h, 15h, … 23h ; période 2 h : 14h, 16h, … 08h).
  * Elle les affiche (selon les complications choisies) sur 1 ou 2 rangées de 5.
  * Elle reçoit aussi la tendance des 6 jours (DAILY_0..5 : code météo, max, min, date).
- * Il envoie aussi les heures de lever/coucher du soleil (complication) et un texte « VILLE : TENDANCE » (ex. « BORDEAUX : PLUIE 8% »).
+ * Il envoie aussi les heures de lever/coucher du soleil (complication) et le texte du bandeau du bas (ex. « BORDEAUX : PLUIE 8% »).
  * Chaque colonne est envoyée dans un seul entier :
  *   bits 0-6   code météo WMO (127 = inconnu)
  *   bit  7     1 = jour, 0 = nuit
@@ -64,6 +75,8 @@ var lastFetchMs  = 0;
 // Le SDK attribue lui-même les numéros : on utilise les noms des deux côtés.
 var K = {
   FORECAST_TS: 'FORECAST_TS',          // heure (s Unix) du calcul des prévisions
+  WX_SLOTS: 'WX_SLOTS',                // téléphone → montre : emplacements servis par ce message (bit 0 case date, 1 rangée haut, 2 rangée bas)
+  WX_UTC_OFF: 'WX_UTC_OFF',            // téléphone → montre : décalage UTC (s) de la localisation des données
   REQUEST_WEATHER: 'REQUEST_WEATHER',  // montre → téléphone : rafraîchir maintenant
   WEATHER_TREND: 'WEATHER_TREND',      // texte « VILLE : TENDANCE »
   LANGUAGE: 'LANGUAGE',                // téléphone → montre : 0 = français, 1 = English
@@ -116,6 +129,11 @@ function cycleBytes(s) {
   return out;
 }
 
+function locIdx(v) {
+  var n = parseInt(v, 10);
+  return (n >= 0 && n < 5) ? n : -1;
+}
+
 function actionFrom(v) {
   var a = parseInt(v, 10);
   return (a === 1) ? 1 : 0;
@@ -141,6 +159,8 @@ function readSettings() {
     compTop: Math.max(0, Math.min(10, parseInt(s.COMP_TOP, 10) || 0)),
     compBot: Math.max(0, Math.min(10, parseInt(s.COMP_BOTTOM, 10) || 0)),
     redRing: parseInt(s.RED_RING_LATERAL, 10) === 1 ? 1 : 0,
+    // localisation de chaque affichage : -1 = position GPS actuelle, 0..4 = localisation enregistrée
+    locSide: locIdx(s.LOC_SIDE), locTop: locIdx(s.LOC_TOP), locBot: locIdx(s.LOC_BOTTOM),
     lang: parseInt(s.LANGUAGE, 10) === 1 ? 1 : 0,
     date: parseInt(s.DATE_FORMAT, 10) === 1 ? 1 : 0,
     fahrenheit: parseInt(s.TEMP_UNIT, 10) === 1,
@@ -310,7 +330,25 @@ function buildClayConfig() {
     for (var k = 0; k < sets.length; k++) o.push({ label: prefix + (k + 1) + ' : ' + sets[k].n, value: String(k) });
     return o;
   }
+  // Localisations : une seule liste pour les 3 choix d'affichage ; un choix qui pointe vers une localisation supprimée retombe sur le GPS
+  var locs = getLocations();
+  var locOpts = [{ label: lang === 1 ? 'Current position (GPS)' : 'Position actuelle (GPS)', value: '-1' }];
+  for (var q = 0; q < locs.length; q++) {
+    if (!locs[q]) continue;
+    locOpts.push({ label: (q + 1) + ' : ' + locDisplayName(locs[q], q) + (locs[q].city && locs[q].country ? ' (' + locs[q].country + ')' : ''),
+                   value: String(q) });
+  }
+  var raw = loadRawSettings(), fixed = false;
+  ['LOC_SIDE', 'LOC_TOP', 'LOC_BOTTOM'].forEach(function(key) {
+    var n = parseInt(raw[key], 10);
+    if (raw[key] !== undefined && !(n === -1 || (n >= 0 && n < MAX_LOCS && locs[n]))) { raw[key] = '-1'; fixed = true; }
+  });
+  delete raw.LOC_CITY;   // ancien réglage (ville du bandeau), supprimé : le bandeau se déduit des autres choix
+  if (fixed) storeRawSettings(raw);
+  var locMsg = '';
+  try { locMsg = localStorage.getItem(LOCMSG_KEY) || ''; localStorage.removeItem(LOCMSG_KEY); } catch (e) {}
   function drop(it) {   // champ retiré de la page quand il ne sert à rien
+    if (it.id === 'locsInfo' && !locMsg) return true;   // rien à signaler : le texte d'information est retiré
     if (!sets.length && (it.messageKey === 'SET_LOAD' || it.messageKey === 'SET_DELETE' ||
                          it.messageKey === 'SET_LOAD_FLAG' || it.id === 'setLoadBtn')) return true;
     return (!full && it.messageKey === 'SET_REPLACE');
@@ -321,6 +359,8 @@ function buildClayConfig() {
       if (drop(it)) { items.splice(k, 1); continue; }
       if (it.items) walk(it.items);
       if (it.id === 'setsInfo') it.defaultValue = info;
+      if (it.id === 'locsInfo') it.defaultValue = locMsg;
+      if (it.messageKey === 'LOC_SIDE' || it.messageKey === 'LOC_TOP' || it.messageKey === 'LOC_BOTTOM') it.options = locOpts;
       if (it.messageKey === 'SET_LOAD')    it.options = opts(lang === 1 ? '— Choose a set' : '— Choisir un set', '');
       if (it.messageKey === 'SET_REPLACE') it.options = opts(lang === 1 ? 'Do not replace' : 'Ne pas remplacer', '');
       if (it.messageKey === 'SET_DELETE')  it.options = opts(lang === 1 ? 'None' : 'Aucun', lang === 1 ? 'Delete ' : 'Supprimer ');
@@ -373,14 +413,15 @@ function pump() {
     if (item.tries >= 3) {
       outbox.shift();
       console.log('[Satsuki Retro LCD Meteo] envoi « ' + item.label + ' » échoué');
+      if (item.onFail) item.onFail();
     }
     sending = false;
     setTimeout(pump, 1000);
   });
 }
 
-function sendMsg(msg, label) {
-  outbox.push({ msg: msg, label: label, tries: 0 });
+function sendMsg(msg, label, onFail) {
+  outbox.push({ msg: msg, label: label, tries: 0, onFail: onFail });
   pump();
 }
 
@@ -393,16 +434,20 @@ function pack(code, isDay, temp, hourField) {
   return c | (isDay ? 0x80 : 0) | (t << 8) | (h << 16);
 }
 
-// Instants (secondes Unix) des COLS créneaux : heures pleines LOCALES, la
-// première étant l'heure pleine strictement suivante (13h00 ou 13h42 → 14h00),
+// Instants (secondes Unix) des COLS créneaux : heures pleines LOCALES DE LA LOCALISATION (« off » = décalage UTC en
+// secondes, fourni par Open-Meteo), la première étant l'heure pleine strictement suivante (13h00 ou 13h42 → 14h00),
 // puis un créneau tous les « period » heures (1 à 4, réglage Clay).
-function slotTimes(nowSec, period) {
-  var t = new Date(nowSec * 1000);
-  t.setMinutes(0, 0, 0);                         // heure pleine locale courante
-  var first = Math.round(t.getTime() / 1000) + 3600;
+function slotTimes(nowSec, period, off) {
+  var first = Math.floor((nowSec + off) / 3600) * 3600 + 3600 - off;
   var out = [];
   for (var i = 0; i < COLS; i++) out.push(first + i * period * 3600);
   return out;
+}
+
+// Décalage UTC (s) de la localisation des données (Open-Meteo, timezone=auto) ; à défaut celui du téléphone
+function locOffset(data) {
+  return (data && typeof data.utc_offset_seconds === 'number') ? data.utc_offset_seconds
+                                                                : -new Date().getTimezoneOffset() * 60;
 }
 
 // Entrée horaire la plus proche de l'instant cible (secondes Unix)
@@ -439,32 +484,29 @@ function formatCityName(cityName) {
 }
 
 // ── Tendance météo de la journée ────────────────────────────────────────
-// Retourne « VILLE : TENDANCE », par exemple :
-//   "BORDEAUX : ENSOLEILLE"
-//   "BORDEAUX : NUAGEUX"
-//   "BORDEAUX : PLUIE 8%"
-//   "BORDEAUX : NEIGE 12%"
-//   "BORDEAUX : BROUILLARD 5%"
-//   "BORDEAUX : ORAGE"
+// Retourne la TENDANCE seule (la ville est ajoutée par bannerText), par exemple :
+//   "ENSOLEILLE", "NUAGEUX", "PLUIE 8%", "NEIGE 12%", "BROUILLARD 5%", "ORAGE"
 //
 // Priorité au phénomène le plus dégradé : orage > neige > pluie > brouillard >
 // nuageux > ensoleillé. Le pourcentage (neige, pluie, brouillard) est la part des
 // heures concernées parmi les heures d'aujourd'hui présentes dans les données
 // (24 h en temps normal). Orage, nuageux et ensoleillé n'ont pas de pourcentage ;
 // « nuageux » s'affiche dès qu'une seule heure est nuageuse (codes 2 ou 3).
-// Sans donnée pour aujourd'hui : « VILLE : METEO ».
+// Sans donnée pour aujourd'hui : « METEO ».
 
-function buildWeatherTrend(data, cityName) {
-  cityName = formatCityName(cityName);
+function buildTrendWord(data) {
   var hr = data.hourly || {};
   var times = hr.time || [];
   var codes = hr.weather_code || [];
   var precip = hr.precipitation || [];
 
-  var today = new Date();
-  var year = today.getFullYear();
-  var month = today.getMonth();
-  var day = today.getDate();
+  // « Aujourd'hui » = le jour LOCAL de la localisation (pas celui du téléphone) : on lit les dates en UTC après
+  // ajout du décalage UTC fourni par Open-Meteo.
+  var off = locOffset(data);
+  var today = new Date(Date.now() + off * 1000);
+  var year = today.getUTCFullYear();
+  var month = today.getUTCMonth();
+  var day = today.getUTCDate();
 
   var counts = {
     storm: 0,
@@ -478,11 +520,11 @@ function buildWeatherTrend(data, cityName) {
   var totalHours = 0;
 
   for (var i = 0; i < times.length; i++) {
-    var d = new Date(times[i] * 1000);
+    var d = new Date((times[i] + off) * 1000);
 
-    if (d.getFullYear() !== year ||
-        d.getMonth() !== month ||
-        d.getDate() !== day) {
+    if (d.getUTCFullYear() !== year ||
+        d.getUTCMonth() !== month ||
+        d.getUTCDate() !== day) {
       continue;
     }
 
@@ -522,34 +564,34 @@ function buildWeatherTrend(data, cityName) {
   }
 
   if (totalHours <= 0) {
-    return cityName + ' : METEO';
+    return 'METEO';
   }
 
   // Priorité au phénomène le plus dégradé.
   if (counts.storm > 0) {
-    return cityName + ' : ORAGE';
+    return 'ORAGE';
   }
 
   if (counts.snow > 0) {
     var snowPct = Math.round(counts.snow * 100 / totalHours);
-    return cityName + ' : NEIGE ' + snowPct + '%';
+    return 'NEIGE ' + snowPct + '%';
   }
 
   if (counts.rain > 0) {
     var rainPct = Math.round(counts.rain * 100 / totalHours);
-    return cityName + ' : PLUIE ' + rainPct + '%';
+    return 'PLUIE ' + rainPct + '%';
   }
 
   if (counts.fog > 0) {
     var fogPct = Math.round(counts.fog * 100 / totalHours);
-    return cityName + ' : BROUILLARD ' + fogPct + '%';
+    return 'BROUILLARD ' + fogPct + '%';
   }
 
   if (counts.cloudy > 0) {
-    return cityName + ' : NUAGEUX';
+    return 'NUAGEUX';
   }
 
-  return cityName + ' : ENSOLEILLE';
+  return 'ENSOLEILLE';
 }
 
 // Lever / coucher du soleil des 3 jours (secondes Unix, 0 = pas de lever ou de
@@ -581,54 +623,22 @@ function addDaily(msg, data) {
   }
 }
 
-// Humidité (%), UV (×10), vent (km/h ×10) à l'heure courante ; qualité de l'air (AQI européen) fournie à part.
-// -1 = indisponible.
-function addEnv(msg, data, aqi) {
-  var hr = data.hourly || {};
-  var idx = nearestHour(hr.time || [], Math.floor(Date.now() / 1000));
-  function val(arr, mul) {
-    var v = (idx >= 0 && arr) ? arr[idx] : undefined;
-    return (typeof v === 'number' && isFinite(v)) ? Math.max(0, Math.round(v * mul)) : -1;
+// Humidité (%), UV (×10), vent (km/h ×10) à l'heure courante (seulement si affichés : need.env) ;
+// qualité de l'air (AQI européen) fournie à part (seulement si affichée : need.aqi). Une valeur absente du message
+// est « indisponible » pour la montre.
+function addEnv(msg, data, aqi, need) {
+  if (need.env) {
+    var hr = data.hourly || {};
+    var idx = nearestHour(hr.time || [], Math.floor(Date.now() / 1000));
+    var val = function(arr, mul) {
+      var v = (idx >= 0 && arr) ? arr[idx] : undefined;
+      return (typeof v === 'number' && isFinite(v)) ? Math.max(0, Math.round(v * mul)) : -1;
+    };
+    msg['HUMIDITY']   = val(hr.relative_humidity_2m, 1);
+    msg['UV_INDEX']   = val(hr.uv_index, 10);
+    msg['WIND_SPEED'] = val(hr.wind_speed_10m, 10);   // km/h (unité par défaut d'Open-Meteo) ; la montre convertit en mph
   }
-  msg['HUMIDITY']    = val(hr.relative_humidity_2m, 1);
-  msg['UV_INDEX']    = val(hr.uv_index, 10);
-  msg['WIND_SPEED']  = val(hr.wind_speed_10m, 10);   // km/h (unité par défaut d'Open-Meteo) ; la montre convertit en mph
-  msg['AIR_QUALITY'] = aqi;
-}
-
-// Qualité de l'air : API air-quality d'Open-Meteo (gratuite, sans clé), AQI européen courant.
-// Appelle toujours « callback » (-1 en cas d'échec ou de zone non couverte).
-function fetchAirQuality(lat, lon, callback) {
-  var url = 'https://air-quality-api.open-meteo.com/v1/air-quality?latitude=' + lat.toFixed(3) +
-            '&longitude=' + lon.toFixed(3) + '&current=european_aqi';
-  var req = new XMLHttpRequest();
-  req.open('GET', url, true);
-  req.timeout = 10000;
-  var done = false;
-  var guard = setTimeout(function() {
-    try { req.abort(); } catch (e) {}
-    end(-1);
-  }, 15000);
-  function end(v) {
-    if (done) return;
-    done = true;
-    clearTimeout(guard);
-    callback(v);
-  }
-  req.onload = function() {
-    var v = -1;
-    try {
-      if (req.status === 200) {
-        var d = JSON.parse(req.responseText);
-        var a = d && d.current ? d.current.european_aqi : null;
-        if (typeof a === 'number' && isFinite(a)) v = Math.max(0, Math.round(a));
-      }
-    } catch (e) {}
-    end(v);
-  };
-  req.onerror   = function() { end(-1); };
-  req.ontimeout = function() { end(-1); };
-  try { req.send(); } catch (ex) { end(-1); }
+  if (need.aqi) msg['AIR_QUALITY'] = aqi;
 }
 
 function addSun(msg, data) {
@@ -640,13 +650,14 @@ function addSun(msg, data) {
   }
 }
 
-function buildSlots(data) {
+function buildSlots(data, period) {
   var hr  = data.hourly  || {};
   var times = hr.time || [];
   var nowSec = Math.floor(Date.now() / 1000);
+  var off = locOffset(data);
   var slots = [];
 
-  var targets = slotTimes(nowSec, readSettings().period);
+  var targets = slotTimes(nowSec, period, off);
   for (var i = 0; i < targets.length; i++) {
     var idx = nearestHour(times, targets[i]);
     var code, day, temp;
@@ -655,197 +666,627 @@ function buildSlots(data) {
       day  = (hr.is_day || [])[idx];
       temp = (hr.temperature_2m || [])[idx];
     }
-    slots.push(pack(code, day === 1, temp, new Date(targets[i] * 1000).getHours()));
+    // heure affichée : heure locale de la localisation
+    slots.push(pack(code, day === 1, temp, Math.floor(((targets[i] + off) % 86400) / 3600)));
   }
   return slots;
 }
 
 function planWeather(ms) {
   if (weatherTimer) clearTimeout(weatherTimer);
-  weatherTimer = setTimeout(fetchWeather, ms);
-}
-
-// ── Cache de la dernière prévision ───────────────────────────────────────
-// Ouvrir le menu ou les notifications ferme puis relance le cadran, donc le JS
-// redémarre (évènement « ready »). Au lieu de tout recharger à chaque fois, on
-// renvoie la dernière prévision si elle a moins de 60 min.
-var CACHE_KEY = 'satsuki-last-forecast-v2';   // v2 : le cache ne contient plus les réglages
-var CACHE_TTL = 60 * 60 * 1000;   // = délai normal de rafraîchissement
-
-function saveCache(msg) {
-  try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), msg: msg }));
-  } catch (e) {}
-}
-
-function loadCache() {
-  try {
-    var c = JSON.parse(localStorage.getItem(CACHE_KEY));
-    var age = c ? Date.now() - c.ts : -1;
-    if (c && c.msg && age >= 0 && age < CACHE_TTL) return c;
-  } catch (e) {}
-  return null;
-}
-
-// Réutilise la dernière prévision si elle a moins de 60 min, sinon récupère
-function fetchOrReuse() {
-  var c = loadCache();
-  if (!c) { fetchWeather(); return; }
-  sendMsg(c.msg, 'prévisions (cache)');
-  planWeather(CACHE_TTL - (Date.now() - c.ts));   // prochain fetch à l'échéance d'origine
+  weatherTimer = setTimeout(function() { fetchWeather(); }, ms);
 }
 
 function refreshMs() {
   return Math.max(5, parseInt(CFG.REFRESH_MIN, 10) || 30) * 60 * 1000;
 }
 
-function fetchFailed(why) {
-  console.log('[Satsuki Retro LCD Meteo] ' + why);
-  fetching = false;
-  planWeather(Math.min(5 * 60 * 1000, refreshMs()));  // nouvel essai dans 5 min (REFRESH_MIN ≥ 5)
-}
+var LOG = '[Satsuki Retro LCD Meteo] ';
 
-function requestForecast(lat, lon) {
-  var unit = readSettings().fahrenheit ? 'fahrenheit' : 'celsius';
-  var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat.toFixed(3) +
-            '&longitude=' + lon.toFixed(3) +
-            '&hourly=temperature_2m,weather_code,is_day,precipitation,relative_humidity_2m,uv_index,wind_speed_10m' +
-            '&daily=sunrise,sunset,weather_code,temperature_2m_max,temperature_2m_min' +
-            '&forecast_days=6&timezone=auto&timeformat=unixtime&temperature_unit=' + unit;
-
+// ── Requête HTTP JSON (une seule implémentation pour Open-Meteo, BigDataCloud…) ──
+// Appelle toujours « cb » une fois : l'objet JSON, ou null (erreur réseau, HTTP ≠ 200, JSON illisible, blocage).
+function getJson(url, timeoutMs, cb) {
   var req = new XMLHttpRequest();
-  req.open('GET', url, true);
-  req.timeout = 15000;
   var done = false;
-  // Garde-fou : sur certains téléphones une requête n'appelle jamais ses callbacks
-  var guard = setTimeout(function() {
+  var guard = null;
+  function end(v) {
     if (done) return;
     done = true;
+    clearTimeout(guard);
+    cb(v);
+  }
+  // Garde-fou : sur certains téléphones une requête n'appelle jamais ses callbacks
+  guard = setTimeout(function() {
     try { req.abort(); } catch (e) {}
-    fetchFailed('requête météo bloquée');
-  }, 25000);
-  function finish() {
-    if (done) return false;
+    end(null);
+  }, timeoutMs + 10000);
+  req.open('GET', url, true);
+  req.timeout = timeoutMs;
+  req.onload = function() {
+    var v = null;
+    try { if (req.status === 200) v = JSON.parse(req.responseText); } catch (e) { v = null; }
+    end(v);
+  };
+  req.onerror   = function() { end(null); };
+  req.ontimeout = function() { end(null); };
+  try { req.send(); } catch (ex) { end(null); }
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Localisations
+// ═════════════════════════════════════════════════════════════════════════
+// Jusqu'à 5 localisations enregistrées dans la page de réglages (un champ LOCk par localisation, k = 1..5, résolu à
+// l'enregistrement en coordonnées + ville + pays : voir loadLocStore). Chaque emplacement d'affichage (case à côté de
+// la date, rangée du haut, rangée du bas) choisit :
+//   -1 = position GPS actuelle (« cur »), 0..4 = localisation enregistrée.
+var MAX_LOCS    = 5;
+var LOCMSG_KEY  = 'satsuki-loc-msg';        // résultat de la dernière résolution, affiché une fois dans la page
+var LASTPOS_KEY = 'satsuki-last-pos';       // dernière position GPS connue (+ ville associée)
+
+function parseCoord(v, max) {
+  if (v === undefined || v === null) return null;
+  var t = String(v).replace(',', '.').trim();
+  if (t === '') return null;
+  var n = Number(t);
+  return (isFinite(n) && Math.abs(n) <= max) ? n : null;
+}
+
+// Localisations résolues, mémorisées à part de Clay (Clay ne garde que les champs de la page) :
+// [{ txt, lat, lon, city, country } | null] × 5, « txt » = texte normalisé affiché dans le champ LOCk.
+var LOCS_KEY = 'satsuki-locs';
+
+function saveLocStore(a) {
+  try { localStorage.setItem(LOCS_KEY, JSON.stringify(a)); } catch (e) {}
+}
+
+// Texte normalisé d'une localisation (ce que la page affiche à la réouverture)
+function locText(e) {
+  if (e.city && e.country) return e.city + ', ' + e.country;
+  return e.city || e.country || (e.lat.toFixed(4) + ', ' + e.lon.toFixed(4));
+}
+
+function loadLocStore() {
+  var out = [], a = null, k;
+  try { a = JSON.parse(localStorage.getItem(LOCS_KEY)); } catch (e) { a = null; }
+  if (Array.isArray(a)) {
+    for (k = 0; k < MAX_LOCS; k++) {
+      var e = a[k];
+      out.push((e && isFinite(e.lat) && isFinite(e.lon) && typeof e.txt === 'string')
+               ? { txt: e.txt, lat: e.lat, lon: e.lon, city: String(e.city || ''), country: String(e.country || '') } : null);
+    }
+    return out;
+  }
+  // Migration depuis l'ancienne page (champs LOCk_COUNTRY / _CITY / _LAT / _LON)
+  var raw = loadRawSettings(), changed = false;
+  for (k = 1; k <= MAX_LOCS; k++) {
+    var la = parseCoord(raw['LOC' + k + '_LAT'], 90), lo = parseCoord(raw['LOC' + k + '_LON'], 180);
+    if (la === null || lo === null) { out.push(null); continue; }
+    var en = { lat: la, lon: lo, city: String(raw['LOC' + k + '_CITY'] || '').trim(), country: String(raw['LOC' + k + '_COUNTRY'] || '').trim() };
+    en.txt = locText(en);
+    raw['LOC' + k] = en.txt;
+    out.push(en);
+    changed = true;
+  }
+  if (changed) storeRawSettings(raw);
+  saveLocStore(out);
+  return out;
+}
+
+// Les 5 emplacements : { lat, lon, city, country } ou null si vide / invalide
+function getLocations() {
+  return loadLocStore().map(function(e) {
+    return e ? { lat: e.lat, lon: e.lon, city: e.city, country: e.country } : null;
+  });
+}
+
+// Clé de localisation d'un choix de réglage : 'cur' (GPS) ou '0'..'4' ; une localisation supprimée retombe sur 'cur'
+function resolveLoc(v, locs) {
+  var n = parseInt(v, 10);
+  return (n >= 0 && n < MAX_LOCS && locs[n]) ? String(n) : 'cur';
+}
+
+function locDisplayName(loc, idx) {
+  return loc.city || loc.country || ('LOC' + (idx + 1));
+}
+
+function distKm(la1, lo1, la2, lo2) {
+  var r = Math.PI / 180, dLa = (la2 - la1) * r, dLo = (lo2 - lo1) * r;
+  var a = Math.sin(dLa / 2) * Math.sin(dLa / 2) +
+          Math.cos(la1 * r) * Math.cos(la2 * r) * Math.sin(dLo / 2) * Math.sin(dLo / 2);
+  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// Minuscules sans accents (comparaison des noms de pays)
+function norm(s) {
+  return String(s === undefined || s === null ? '' : s).toLowerCase()
+    .replace(/[àáâãäå]/g, 'a').replace(/ç/g, 'c').replace(/[èéêë]/g, 'e').replace(/[ìíîï]/g, 'i')
+    .replace(/[òóôõö]/g, 'o').replace(/[ùúûü]/g, 'u').replace(/ÿ/g, 'y').replace(/ñ/g, 'n')
+    .replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+// ── Position GPS actuelle, avec repli sur la dernière position connue ───
+function loadLastPos() {
+  try {
+    var p = JSON.parse(localStorage.getItem(LASTPOS_KEY));
+    if (p && isFinite(p.lat) && isFinite(p.lon)) return p;
+  } catch (e) {}
+  return null;
+}
+
+function saveLastPos(p) {
+  try { localStorage.setItem(LASTPOS_KEY, JSON.stringify(p)); } catch (e) {}
+}
+
+// cb(pos, repli) : pos = { lat, lon } ; repli = true si c'est la dernière position connue (GPS indisponible).
+// pos = null seulement si le GPS échoue ET qu'aucune position n'a jamais été obtenue.
+function getCurrentPos(cb) {
+  var done = false, guard = null;
+  function end(pos, fallback) {
+    if (done) return;
     done = true;
     clearTimeout(guard);
-    return true;
+    cb(pos, fallback);
   }
-  req.onload = function() {
-    if (!finish()) return;
-    if (req.status !== 200) { fetchFailed('erreur HTTP ' + req.status); return; }
-    try {
-		var data = JSON.parse(req.responseText);
-		var slots = buildSlots(data);
-
-		reverseGeocode(lat, lon, function(cityName) {
-		  fetchAirQuality(lat, lon, function(aqi) {
-			
-		  var trend = buildWeatherTrend(data, cityName);
-
-		  var msg = {};
-
-		  for (var i = 0; i < COLS; i++) {
-			msg[forecastKey(i)] = slots[i];
-		  }
-
-		  msg[K.FORECAST_TS] = Math.floor(Date.now() / 1000);
-		  msg[K.WEATHER_TREND] = trend;
-		  addSun(msg, data);
-		  addDaily(msg, data);
-		  addEnv(msg, data, aqi);
-		  // Les réglages ne sont plus joints aux prévisions : ils partent à l'ouverture (ready) et à la
-		  // fermeture de la page de réglages, pour ne pas écraser un cycle fait avec les boutons de la montre.
-
-		  saveCache(msg);
-		  sendMsg(msg, 'prévisions + tendance');
-
-		  fetching = false;
-
-		  // Prochain rafraîchissement dans 60 min (fixe : REFRESH_MIN ne sert qu'en cas d'échec)
-		  planWeather(60 * 60 * 1000);
-
-		  // Réglages changés pendant cette récupération : on la refait avec les nouveaux
-		  if (pendingRefetch) { pendingRefetch = false; fetchWeather(); }
-		  });
-		});
-    } catch (ex) {
-      fetchFailed('réponse illisible : ' + ex);
-    }
-  };
-  req.onerror   = function() { if (finish()) fetchFailed('erreur réseau'); };
-  req.ontimeout = function() { if (finish()) fetchFailed('délai dépassé'); };
+  function useLast(why) {
+    var last = loadLastPos();
+    console.log(LOG + why + (last ? ' : dernière position connue utilisée' : ' : aucune position connue'));
+    end(last, true);
+  }
+  // Certains téléphones n'appellent jamais les callbacks de géolocalisation
+  guard = setTimeout(function() { useLast('géolocalisation bloquée'); }, 25000);
   try {
-    req.send();
+    navigator.geolocation.getCurrentPosition(function(pos) {
+      var last = loadLastPos() || {};
+      var p = { lat: pos.coords.latitude, lon: pos.coords.longitude, ts: Date.now(),
+                city: last.city, country: last.country, cLat: last.cLat, cLon: last.cLon, cLang: last.cLang };
+      saveLastPos(p);
+      end(p, false);
+    }, function(err) {
+      useLast('position indisponible : ' + (err && err.message));
+    }, { timeout: 15000, maximumAge: 15 * 60 * 1000 });
   } catch (ex) {
-    if (finish()) fetchFailed('envoi impossible : ' + ex);
+    useLast('géolocalisation impossible');
   }
 }
 
-// Nom de la ville via BigDataCloud (langue choisie dans la page de réglages) ;
-// « METEO » en cas d'échec (la montre le traduit en « WEATHER » en anglais).
-// Les mots de tendance (PLUIE, ORAGE…) sont toujours envoyés en français : la
-// montre les traduit selon CFG_LANGUAGE.
-function reverseGeocode(lat, lon, callback) {
-  var lang = (readSettings().lang === 1) ? 'en' : 'fr';
+// ── Géocodage ───────────────────────────────────────────────────────────
+// Coordonnées → ville et pays (BigDataCloud, langue choisie dans la page de réglages). cb({ city, country }) ou cb(null).
+function reverseGeocode(lat, lon, lang, cb) {
   var url = 'https://api.bigdatacloud.net/data/reverse-geocode-client' +
             '?latitude=' + encodeURIComponent(lat) +
             '&longitude=' + encodeURIComponent(lon) +
-            '&localityLanguage=' + encodeURIComponent(lang);
-
-  var req = new XMLHttpRequest();
-  req.open('GET', url, true);
-  req.timeout = 10000;
-
-  req.onload = function() {
-    if (req.status !== 200) {
-      callback('METEO');
-      return;
-    }
-
-    try {
-      var data = JSON.parse(req.responseText);
-      var city = data.city ||
-                 data.locality ||
-                 data.principalSubdivision ||
-                 'METEO';
-
-      callback(city.toUpperCase());
-    } catch (e) {
-      callback('METEO');
-    }
-  };
-
-  req.onerror = function() {
-    callback('METEO');
-  };
-
-  req.ontimeout = function() {
-    callback('METEO');
-  };
-
-  try {
-    req.send();
-  } catch (e) {
-    callback('METEO');
-  }
+            '&localityLanguage=' + (lang === 1 ? 'en' : 'fr');
+  getJson(url, 10000, function(d) {
+    if (!d) { cb(null); return; }
+    var city = d.city || d.locality || d.principalSubdivision || '';
+    if (!city && !d.countryName) { cb(null); return; }
+    cb({ city: String(city), country: String(d.countryName || '') });
+  });
 }
 
-function fetchWeather() {
+// Ville (+ pays facultatif) → coordonnées (Open-Meteo geocoding, gratuit, sans clé).
+// cb('ok', { name, country, lat, lon }) · cb('none') : introuvable · cb('error') : réseau.
+function forwardGeocode(city, country, lang, cb) {
+  var url = 'https://geocoding-api.open-meteo.com/v1/search?name=' + encodeURIComponent(city) +
+            '&count=10&format=json&language=' + (lang === 1 ? 'en' : 'fr');
+  getJson(url, 10000, function(d) {
+    if (!d) { cb('error'); return; }
+    var res = d.results || [];
+    var c = norm(country), pick = null;
+    for (var i = 0; i < res.length; i++) {
+      var r = res[i];
+      if (!c) { pick = r; break; }
+      var rc = norm(r.country);
+      if (rc === c || norm(r.country_code) === c || (c.length >= 3 && rc.indexOf(c) === 0)) { pick = r; break; }
+    }
+    if (!pick) { cb('none'); return; }
+    cb('ok', { name: pick.name, country: pick.country || '', lat: pick.latitude, lon: pick.longitude });
+  });
+}
+
+// Nom de la ville de la position GPS actuelle. Réutilise le nom déjà trouvé si on a bougé de moins de 3 km
+// (pas de requête inutile à chaque rafraîchissement) ; en cas d'échec du service, ce nom, sinon « METEO ».
+function currentCityName(pos, lang, cb) {
+  var L = loadLastPos() || {};
+  var l = (lang === 1) ? 'en' : 'fr';
+  var near = L.city && isFinite(L.cLat) && isFinite(L.cLon) && distKm(pos.lat, pos.lon, L.cLat, L.cLon) < 3;
+  if (near && L.cLang === l) { cb(L.city); return; }
+  reverseGeocode(pos.lat, pos.lon, lang, function(g) {
+    if (g && g.city) {
+      var p = loadLastPos() || { lat: pos.lat, lon: pos.lon, ts: Date.now() };
+      p.city = g.city; p.country = g.country; p.cLat = pos.lat; p.cLon = pos.lon; p.cLang = l;
+      saveLastPos(p);
+      cb(g.city);
+    } else {
+      cb(near ? L.city : 'METEO');
+    }
+  });
+}
+
+// ── Enregistrement des localisations (à la fermeture de la page de réglages) ──
+// Chaque champ LOCk est analysé (parseLocInput) puis résolu SEULEMENT s'il a changé depuis la dernière fois :
+//  - « GPS » : coordonnées de la position actuelle (ou la dernière connue) + ville / pays trouvés ;
+//  - deux nombres (« 44.84, -0.58 ») : coordonnées ; la ville / le pays sont cherchés ;
+//  - « Ville » ou « Ville, Pays » : les coordonnées sont cherchées ;
+//  - vide : la localisation est supprimée (les affichages qui l'utilisaient retombent sur la position actuelle).
+// Le champ est ensuite réécrit sous forme normalisée (« Bordeaux, France ») : la page l'affiche à la réouverture.
+function parseLocInput(txt) {
+  var t = String(txt === undefined || txt === null ? '' : txt).trim();
+  if (!t) return { kind: 'empty' };
+  if (/^(gps|@|ici|here)$/i.test(t)) return { kind: 'gps' };
+  var m = t.match(/^(-?\d+(?:[.,]\d+)?)\s*[;,\s]\s*(-?\d+(?:[.,]\d+)?)$/);
+  if (m) {
+    var la = parseCoord(m[1], 90), lo = parseCoord(m[2], 180);
+    return (la !== null && lo !== null) ? { kind: 'coords', lat: la, lon: lo } : { kind: 'bad' };
+  }
+  var i = t.indexOf(','), city = (i < 0 ? t : t.substring(0, i)).trim(), country = (i < 0 ? '' : t.substring(i + 1)).trim();
+  return city ? { kind: 'city', city: city, country: country } : { kind: 'bad' };
+}
+
+function processLocations(done) {
+  var msgs = [], n = 0;
+  var lang = readSettings().lang;
+  function T(fr, en) { return lang === 1 ? en : fr; }
+  function r4(v) { return Math.round(v * 10000) / 10000; }
+
+  function resolveOne(idx, cb) {
+    var key = 'LOC' + (idx + 1);
+    var label = T('Localisation ', 'Location ') + (idx + 1);
+    var txt = String(loadRawSettings()[key] || '').trim();
+    var store = loadLocStore(), old = store[idx];
+    if (old ? txt === old.txt : !txt) { cb(); return; }          // inchangée : rien à faire
+
+    // entry : objet = nouvelle localisation · null = supprimée · undefined = inchangée (échec) ;
+    // le champ est réécrit avec le texte normalisé (ou « text » si fourni)
+    function finish(entry, note, text) {
+      if (entry !== undefined) { store[idx] = entry; saveLocStore(store); }
+      var r = loadRawSettings();
+      if (entry) r[key] = entry.txt; else if (text !== undefined) r[key] = text;
+      storeRawSettings(r);
+      if (note) msgs.push(label + ' : ' + note);
+      cb();
+    }
+    function make(lat, lon, city, country) {
+      var e = { lat: lat, lon: lon, city: city || '', country: country || '' };
+      e.txt = locText(e);
+      return e;
+    }
+
+    var p = parseLocInput(txt);
+    if (p.kind === 'empty') { finish(null, null, ''); return; }
+    if (p.kind === 'bad') {
+      finish(undefined, T('saisie non reconnue (« Ville, Pays », coordonnées ou « GPS »)', 'input not recognized (« City, Country », coordinates or « GPS »)'));
+      return;
+    }
+    if (p.kind === 'gps') {
+      getCurrentPos(function(pos, fallback) {
+        if (!pos) { finish(undefined, T('position actuelle indisponible', 'current position unavailable'), old ? old.txt : ''); return; }
+        reverseGeocode(pos.lat, pos.lon, lang, function(g) {
+          finish(make(r4(pos.lat), r4(pos.lon), g ? g.city : '', g ? g.country : ''),
+                 fallback ? T('remplie avec la dernière position connue', 'filled with the last known position')
+                          : T('remplie avec la position actuelle', 'filled with the current position'));
+        });
+      });
+      return;
+    }
+    if (p.kind === 'coords') {
+      reverseGeocode(p.lat, p.lon, lang, function(g) {
+        finish(make(p.lat, p.lon, g ? g.city : '', g ? g.country : ''),
+               g ? T('ville trouvée à partir des coordonnées', 'city found from the coordinates') : null);
+      });
+      return;
+    }
+    forwardGeocode(p.city, p.country, lang, function(status, r) {   // ville (+ pays facultatif)
+      if (status === 'ok') {
+        finish(make(r.lat, r.lon, r.name || p.city, r.country || p.country), T('coordonnées trouvées', 'coordinates found'));
+      } else if (status === 'none') {
+        finish(null, T('ville introuvable (vérifiez le nom et le pays, ou saisissez les coordonnées)', 'city not found (check the name and country, or enter the coordinates)'), txt);
+      } else {
+        finish(undefined, T('recherche impossible (réseau), réessayez en enregistrant à nouveau', 'search failed (network), save again to retry'));
+      }
+    });
+  }
+
+  function next() {
+    if (n >= MAX_LOCS) {
+      try { if (msgs.length) localStorage.setItem(LOCMSG_KEY, msgs.join(' — ')); } catch (e) {}
+      done();
+      return;
+    }
+    resolveOne(n++, next);
+  }
+  next();
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Plan de récupération : une seule requête par localisation RÉELLEMENT affichée
+// ═════════════════════════════════════════════════════════════════════════
+// Complications qui affichent de la météo (valeurs de COMPLICATION / COMP_TOP / COMP_BOTTOM, voir main.c)
+function sideUsesWx(c) { return c === 3 || c === 6 || c === 7 || c === 8 || c === 9 || c === 10; }
+function rowUsesWx(c)  { return c === 0 || c === 3 || c === 4 || c === 9 || c === 10; }
+
+// Retourne { keys: [clés de localisation], loc: { clé: { mask, aqi, env, name, trend } }, banner } :
+//   mask  = emplacements de la montre alimentés par cette localisation (bit 0 case, bit 1 haut, bit 2 bas)
+//   aqi   = qualité de l'air affichée quelque part (requête air-quality en plus)
+//   env   = humidité / UV / vent affichés quelque part (variables horaires en plus)
+//   name  = le nom de la ville est affiché dans le bandeau du bas
+//   trend = la tendance du jour est affichée dans le bandeau (une seule localisation pour tous les affichages)
+//   banner = { single: clé } (« VILLE : TENDANCE ») ou { groups: [{ key, nums: [1, 2, 3] }] } (« 1|2 VILLE 3|VILLE »)
+// Affichages concernés par le bandeau : ceux dont la complication utilise la météo ; si aucun n'en utilise, les trois.
+// Une localisation que rien n'affiche n'est jamais interrogée ; une complication sans météo (pas, FC…) non plus.
+function buildPlan(s, locs) {
+  var plan = { keys: [], loc: {}, banner: null };
+  function need(key) {
+    if (!plan.loc[key]) { plan.loc[key] = { mask: 0, aqi: false, env: false, name: false, trend: false }; plan.keys.push(key); }
+    return plan.loc[key];
+  }
+  var shown = [];   // { n: numéro d'affichage 1..3, key }
+  if (sideUsesWx(s.comp)) {
+    var a = need(resolveLoc(s.locSide, locs));
+    a.mask |= 1;
+    if (s.comp === 9) a.aqi = true;
+    if (s.comp === 7 || s.comp === 8 || s.comp === 10) a.env = true;
+    shown.push({ n: 1, key: resolveLoc(s.locSide, locs) });
+  }
+  if (rowUsesWx(s.compTop)) {
+    var b = need(resolveLoc(s.locTop, locs));
+    b.mask |= 2;
+    if (s.compTop === 9) b.aqi = true;
+    if (s.compTop === 9 || s.compTop === 10) b.env = true;
+    shown.push({ n: 2, key: resolveLoc(s.locTop, locs) });
+  }
+  if (rowUsesWx(s.compBot)) {
+    var c = need(resolveLoc(s.locBot, locs));
+    c.mask |= 4;
+    if (s.compBot === 9) c.aqi = true;
+    if (s.compBot === 9 || s.compBot === 10) c.env = true;
+    shown.push({ n: 3, key: resolveLoc(s.locBot, locs) });
+  }
+  if (!shown.length) {   // aucune complication météo : le bandeau se base sur les trois choix de localisation
+    shown = [{ n: 1, key: resolveLoc(s.locSide, locs) }, { n: 2, key: resolveLoc(s.locTop, locs) }, { n: 3, key: resolveLoc(s.locBot, locs) }];
+  }
+  var groups = [];
+  shown.forEach(function(d) {
+    for (var i = 0; i < groups.length; i++) if (groups[i].key === d.key) { groups[i].nums.push(d.n); return; }
+    groups.push({ key: d.key, nums: [d.n] });
+  });
+  if (groups.length === 1) {
+    var one = need(groups[0].key);
+    one.name = true; one.trend = true;
+    plan.banner = { single: groups[0].key };
+  } else {
+    groups.forEach(function(g) { need(g.key).name = true; });
+    plan.banner = { groups: groups };
+  }
+  return plan;
+}
+
+// Signature du plan : change dès qu'un cycle de la montre ou un réglage modifie ce qui doit être récupéré ou affiché
+function planSig() {
+  var p = buildPlan(readSettings(), getLocations());
+  var parts = [], keys = p.keys.slice().sort();
+  for (var i = 0; i < keys.length; i++) {
+    var n = p.loc[keys[i]];
+    parts.push(keys[i] + ':' + n.mask + (n.aqi ? 'a' : '') + (n.env ? 'e' : '') + (n.name ? 'n' : '') + (n.trend ? 't' : ''));
+  }
+  var b = p.banner.single !== undefined ? 'S' + p.banner.single
+        : p.banner.groups.map(function(g) { return g.key + '=' + g.nums.join(''); }).join(',');
+  return parts.join(';') + '|' + b;
+}
+
+// Texte du bandeau du bas, ou null s'il manque des données (récupération échouée : on garde l'ancien bandeau)
+//   une seule localisation : « VILLE : TENDANCE »
+//   plusieurs : « #1|2 BORDEAUX;3 PARIS » (« # » = format à groupes ; les affichages de même ville sont fusionnés)
+function bannerText(plan, cache) {
+  var b = plan.banner;
+  if (!b) return null;
+  function clean(nm) { return String(nm || '').replace(/[;:|#]/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 16).trim(); }
+  if (b.single !== undefined) {
+    var e = cache[b.single];
+    if (!e || !e.name) return null;
+    return clean(e.name) + ' : ' + (e.trend || 'METEO');
+  }
+  var out = [];
+  for (var i = 0; i < b.groups.length; i++) {
+    var en = cache[b.groups[i].key];
+    if (!en || !en.name) return null;
+    var nm = clean(en.name), hit = null;
+    for (var j = 0; j < out.length; j++) if (out[j].name === nm) hit = out[j];
+    if (hit) hit.nums = hit.nums.concat(b.groups[i].nums).sort();
+    else out.push({ name: nm, nums: b.groups[i].nums.slice() });
+  }
+  return '#' + out.map(function(g) { return g.nums.join('|') + ' ' + g.name; }).join(';');
+}
+
+// ── Cache : un enregistrement par localisation ──────────────────────────
+// Ouvrir le menu ou les notifications ferme puis relance le cadran, donc le JS redémarre (évènement « ready »).
+// Au lieu de tout recharger à chaque fois, on renvoie la dernière prévision de chaque localisation si elle a moins
+// de 60 min ET si elle contient tout ce qui est affiché maintenant (qualité de l'air, indicateurs, ville, tendance).
+var CACHE_KEY = 'satsuki-wx-cache-v4';   // { clé de localisation : { ts, sig, unit, period, lang, has, f, name, trend } }
+var CACHE_TTL = 60 * 60 * 1000;          // = délai normal de rafraîchissement
+
+function loadCache() {
+  try {
+    var c = JSON.parse(localStorage.getItem(CACHE_KEY));
+    if (c && typeof c === 'object') return c;
+  } catch (e) {}
+  return {};
+}
+
+function saveCache(c) {
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify(c)); } catch (e) {}
+}
+
+// Identité d'une localisation dans le cache : ses coordonnées et son nom (modifiés → cache invalide)
+function locSig(key, locs) {
+  if (key === 'cur') return 'cur';
+  var i = parseInt(key, 10);
+  return locs[i].lat + ',' + locs[i].lon + ',' + formatCityName(locDisplayName(locs[i], i));
+}
+
+function cacheOk(e, key, need, ctx, locs, maxAge) {
+  if (!e || !e.f || !e.has) return false;
+  var age = Date.now() - e.ts;
+  if (!(age >= 0 && age < maxAge)) return false;
+  return e.sig === locSig(key, locs) && e.unit === ctx.unit && e.period === ctx.period && e.lang === ctx.lang &&
+         (!need.aqi || e.has.aqi) && (!need.env || e.has.env) && (!need.name || e.has.name) && (!need.trend || e.has.trend);
+}
+
+// ── Requêtes météo d'une localisation ───────────────────────────────────
+// Qualité de l'air : API air-quality d'Open-Meteo (AQI européen courant), -1 en cas d'échec ou de zone non couverte.
+function fetchAirQuality(lat, lon, cb) {
+  var url = 'https://air-quality-api.open-meteo.com/v1/air-quality?latitude=' + lat.toFixed(3) +
+            '&longitude=' + lon.toFixed(3) + '&current=european_aqi';
+  getJson(url, 10000, function(d) {
+    var a = (d && d.current) ? d.current.european_aqi : null;
+    cb((typeof a === 'number' && isFinite(a)) ? Math.max(0, Math.round(a)) : -1);
+  });
+}
+
+// Prévisions Open-Meteo : les variables d'humidité / UV / vent ne sont demandées que si elles sont affichées
+function requestForecast(lat, lon, need, ctx, cb) {
+  var hourly = 'temperature_2m,weather_code,is_day,precipitation' +
+               (need.env ? ',relative_humidity_2m,uv_index,wind_speed_10m' : '');
+  var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat.toFixed(3) +
+            '&longitude=' + lon.toFixed(3) +
+            '&hourly=' + hourly +
+            '&daily=sunrise,sunset,weather_code,temperature_2m_max,temperature_2m_min' +
+            '&forecast_days=6&timezone=auto&timeformat=unixtime&temperature_unit=' + ctx.unit;
+  getJson(url, 15000, function(d) {
+    if (!d || !d.hourly) console.log(LOG + 'prévisions indisponibles (' + lat.toFixed(2) + ', ' + lon.toFixed(2) + ')');
+    cb(d && d.hourly ? d : null);
+  });
+}
+
+// Entrée de cache complète d'une localisation (messages construits plus tard selon les emplacements servis).
+// city = nom de la ville du bandeau (null : pas demandé) ; la tendance du jour n'est calculée que si need.trend.
+function buildEntry(key, locs, need, ctx, data, aqi, city) {
+  var f = {}, slots = buildSlots(data, ctx.period);
+  for (var i = 0; i < COLS; i++) f[forecastKey(i)] = slots[i];
+  f[K.FORECAST_TS] = Math.floor(Date.now() / 1000);
+  f[K.WX_UTC_OFF] = locOffset(data);
+  addSun(f, data);
+  addDaily(f, data);
+  addEnv(f, data, aqi, need);
+  return {
+    ts: Date.now(), sig: locSig(key, locs), unit: ctx.unit, period: ctx.period, lang: ctx.lang,
+    has: { aqi: need.aqi, env: need.env, name: city !== null, trend: need.trend },
+    f: f,
+    name: city !== null ? formatCityName(city) : null,
+    trend: need.trend ? buildTrendWord(data) : null
+  };
+}
+
+// cb(entrée) ou cb(null) en cas d'échec
+function fetchLocation(key, need, ctx, locs, cb) {
+  function withPos(pos) {
+    if (!pos) { console.log(LOG + 'localisation ' + key + ' : aucune position'); cb(null); return; }
+    requestForecast(pos.lat, pos.lon, need, ctx, function(data) {
+      if (!data) { cb(null); return; }
+      function withAqi(aqi) {
+        function withCity(city) { cb(buildEntry(key, locs, need, ctx, data, aqi, city)); }
+        if (key !== 'cur') {
+          var i = parseInt(key, 10);
+          withCity(locDisplayName(locs[i], i));
+        } else if (need.name) {
+          currentCityName(pos, ctx.lang, withCity);      // une requête seulement si on a bougé de plus de 3 km
+        } else {
+          withCity(null);
+        }
+      }
+      if (need.aqi) fetchAirQuality(pos.lat, pos.lon, withAqi); else withAqi(-1);
+    });
+  }
+  if (key === 'cur') getCurrentPos(function(pos) { withPos(pos); });   // GPS, sinon dernière position connue
+  else withPos(locs[parseInt(key, 10)]);
+}
+
+// ── Envoi à la montre ───────────────────────────────────────────────────
+// Un seul message par localisation : données + WX_SLOTS (emplacements servis). Le bandeau du bas est envoyé à part.
+var sentSig = {};      // clé de localisation → signature du dernier message livré (évite de renvoyer la même chose)
+var sentBanner = '';   // dernier texte de bandeau livré
+
+function sendLoc(key, entry, need) {
+  if (!need.mask) return;                  // localisation utilisée seulement par le bandeau : rien pour les complications
+  var sig = entry.ts + '|' + need.mask;
+  if (sentSig[key] === sig) return;
+  var m = {};
+  for (var k in entry.f) if (entry.f.hasOwnProperty(k)) m[k] = entry.f[k];
+  m[K.WX_SLOTS] = need.mask;
+  sentSig[key] = sig;
+  sendMsg(m, 'météo ' + key, function() { delete sentSig[key]; });
+}
+
+function sendBanner(plan, cache) {
+  var txt = bannerText(plan, cache);
+  if (!txt || txt === sentBanner) return;
+  sentBanner = txt;
+  var m = {};
+  m[K.WEATHER_TREND] = txt;
+  sendMsg(m, 'bandeau', function() { sentBanner = ''; });
+}
+
+// ── Rafraîchissement ────────────────────────────────────────────────────
+// Appelé au démarrage du JS, à l'échéance du cache, à la demande de la montre, après un changement de réglages.
+// maxAgeMs : âge maximal d'une entrée de cache réutilisable (défaut 60 min).
+function fetchWeather(maxAgeMs) {
   // Un essai bloqué depuis plus d'une minute ne doit pas empêcher le suivant
   if (fetching && Date.now() - lastFetchMs < 60 * 1000) return;
   fetching = true;
   lastFetchMs = Date.now();
-  navigator.geolocation.getCurrentPosition(function(pos) {
-    requestForecast(pos.coords.latitude, pos.coords.longitude);
-  }, function(err) {
-    fetchFailed('position indisponible : ' + err.message);
-  }, { timeout: 15000, maximumAge: 15 * 60 * 1000 });
+
+  var maxAge = (typeof maxAgeMs === 'number') ? maxAgeMs : CACHE_TTL;
+  var s = readSettings(), locs = getLocations(), plan = buildPlan(s, locs);
+  var ctx = { unit: s.fahrenheit ? 'fahrenheit' : 'celsius', period: s.period, lang: s.lang };
+  var cache = loadCache();
+  var queue = plan.keys.slice(), failed = 0, nextAt = 0;
+
+  function finish() {
+    fetching = false;
+    for (var k in cache) {            // les entrées de plus de 3 h n'ont plus d'intérêt (la montre les juge périmées)
+      if (cache.hasOwnProperty(k) && !(Date.now() - cache[k].ts < 3 * CACHE_TTL)) delete cache[k];
+    }
+    saveCache(cache);
+    sendBanner(plan, cache);          // ville + tendance, ou numéros d'affichage + villes
+    if (failed) {
+      // nouvel essai dans 5 min (REFRESH_MIN ≥ 5) : le cache fournit les localisations déjà à jour, seules les autres sont redemandées
+      planWeather(Math.min(5 * 60 * 1000, refreshMs()));
+    } else {
+      // prochain rafraîchissement à l'échéance de la plus ancienne localisation
+      planWeather(nextAt ? Math.max(30 * 1000, nextAt - Date.now()) : CACHE_TTL);
+    }
+    // Réglages changés pendant cette récupération : on la refait avec les nouveaux (le cache évite les requêtes inutiles)
+    if (pendingRefetch) { pendingRefetch = false; fetchWeather(); }
+  }
+
+  function next() {
+    if (!queue.length) { finish(); return; }
+    var key = queue.shift(), need = plan.loc[key];
+    var e = cache[key];
+    function got(entry) {
+      if (entry) {
+        cache[key] = entry;
+        saveCache(cache);
+        sendLoc(key, entry, need);
+        var exp = entry.ts + CACHE_TTL + 1000;
+        if (!nextAt || exp < nextAt) nextAt = exp;
+      } else {
+        failed++;
+        console.log(LOG + 'localisation ' + key + ' : récupération échouée');
+      }
+      next();
+    }
+    if (cacheOk(e, key, need, ctx, locs, maxAge)) got(e);
+    else fetchLocation(key, need, ctx, locs, got);
+  }
+  next();
 }
 
 // ── Événements Pebble ────────────────────────────────────────────────────
 Pebble.addEventListener('ready', function() {
-  console.log('[Satsuki Retro LCD Meteo] JS prêt');
-  fetchOrReuse();
+  console.log(LOG + 'JS prêt');
+  try { localStorage.removeItem('satsuki-last-forecast-v2'); localStorage.removeItem('satsuki-wx-cache-v3'); } catch (e) {}   // anciens caches
+  fetchWeather();
   // Renvoie les réglages enregistrés (montre réinstallée, par exemple)
   sendSettings();
 });
@@ -860,7 +1301,7 @@ function sendSettings() {
 
 // Ouverture de la page de réglages (appli Pebble → Réglages)
 Pebble.addEventListener('showConfiguration', function() {
-  // Page reconstruite à chaque ouverture : liste des sets et choix remplacer / supprimer à jour
+  // Page reconstruite à chaque ouverture : liste des sets et des localisations à jour
   clay = new Clay(buildClayConfig(), clayCustom, { autoHandleEvents: false });
   Pebble.openURL(clay.generateUrl());
 });
@@ -871,28 +1312,39 @@ Pebble.addEventListener('webviewclosed', function(e) {
   try {
     clay.getSettings(e.response, false);
   } catch (ex) {
-    console.log('[Satsuki Retro LCD Meteo] réglages illisibles : ' + ex);
+    console.log(LOG + 'réglages illisibles : ' + ex);
     return;
   }
-  try { processSetActions(); } catch (ex) { console.log('[Satsuki Retro LCD Meteo] sets : ' + ex); }
-  sendSettings();                          // réglages → montre (un set chargé a déjà modifié les réglages)
-  if (fetching) pendingRefetch = true;     // unité °C/°F et langue de la ville :
-  else fetchWeather();                     // on refait la récupération
+  try { processSetActions(); } catch (ex) { console.log(LOG + 'sets : ' + ex); }
+  // Localisations : résolution (GPS, géocodage) puis réglages → montre, puis récupération.
+  // Le cache fait que seules les localisations / données réellement modifiées sont redemandées
+  // (unité °C/°F, langue, période, localisation ou complication changées).
+  processLocations(function() {
+    sendSettings();                          // un set chargé a déjà modifié les réglages
+    if (fetching) pendingRefetch = true;
+    else fetchWeather();
+  });
 });
 
 Pebble.addEventListener('appmessage', function(e) {
-  // La montre demande un rafraîchissement (reconnexion, prévisions trop vieilles)
+  // La montre demande un rafraîchissement (reconnexion, prévisions trop vieilles) : données de plus de 15 min refaites
+  // et tout renvoyé à la montre
   var p = e.payload || {};
   if (p[K.REQUEST_WEATHER] !== undefined) {
-    if (Date.now() - lastFetchMs > 60 * 1000) fetchWeather();
+    sentSig = {};
+    sentBanner = '';
+    // données de plus de 15 min refaites, sauf si une récupération vient d'avoir lieu (le cache est alors renvoyé tel quel)
+    fetchWeather(Date.now() - lastFetchMs > 60 * 1000 ? 15 * 60 * 1000 : CACHE_TTL);
   }
   // Cycle fait avec un mouvement du poignet : on mémorise le nouvel état comme réglages courants.
-  // Si °C/°F, langue (nom de la ville) ou période météo ont changé, on refait la récupération.
+  // Si °C/°F, langue (nom de la ville), période météo ou ce qui doit être récupéré (nouvelle complication
+  // météo, qualité de l'air…) ont changé, on relance la récupération : le cache évite de redemander le reste.
   if (p[K.STATE_PACK] !== undefined) {
-    var before = readSettings();
+    var before = readSettings(), sigBefore = planSig();
     applyStateToSettings(parseInt(p[K.STATE_PACK], 10) || 0);
     var after = readSettings();
-    if (before.fahrenheit !== after.fahrenheit || before.lang !== after.lang || before.period !== after.period) {
+    if (before.fahrenheit !== after.fahrenheit || before.lang !== after.lang || before.period !== after.period ||
+        sigBefore !== planSig()) {
       if (fetching) pendingRefetch = true; else fetchWeather();
     }
   }

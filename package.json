@@ -1,7 +1,7 @@
 {
   "name": "satsukiretrolcdmeteo",
   "author": "Satsuki",
-  "version": "1.3.0",
+  "version": "1.3.3",
   "keywords": [
     "pebble-app"
   ],
@@ -198,21 +198,21 @@
         {
           "type": "font",
           "name": "FONT_DSEG_SD_TIME48",
-          "file": "fonts/Seg7Custom-Bold.ttf",
+          "file": "fonts/Seg7Custom-Bold-48.ttf",
           "characterRegex": "[0-9:. -]",
           "size": 48
         },
         {
           "type": "font",
           "name": "FONT_DSEG_SD_BOLD20",
-          "file": "fonts/Seg7Custom-Bold.ttf",
+          "file": "fonts/Seg7Custom-Bold-20.ttf",
           "characterRegex": "[0-9. +:-]",
           "size": 20
         },
         {
           "type": "font",
           "name": "FONT_DSEG_SD_REG20",
-          "file": "fonts/Seg7Custom-Bold.ttf",
+          "file": "fonts/Seg7Custom-Bold-20.ttf",
           "characterRegex": "[0-9. +:-]",
           "size": 20
         },
@@ -271,7 +271,9 @@
       "WIND_SPEED",
       "WRIST_ACTION",
       "CYCLE_DATA",
-      "STATE_PACK"
+      "STATE_PACK",
+      "WX_SLOTS",
+      "WX_UTC_OFF"
     ]
   }
 }

@@ -14,7 +14,15 @@
  *   température "0" = °C, période météo "1" = 1 h, rangées haut et bas "0" = météo horaire,
  *   mouvement du poignet "0" = aucune action, cycles 1 à 5 : tout « Inchangé » ("-1").
  *
- * Organisation : Langue / Affichage / Unités / Complications / Mouvement du poignet + cycles / Sets.
+ * Organisation : Langue / Affichage / Unités / Complications / Localisations (UN seul cadre : choix par affichage +
+ * 5 localisations enregistrées, une ligne chacune) / Mouvement du poignet + cycles / Sets.
+ * Localisations : LOC_SIDE, LOC_TOP, LOC_BOTTOM choisissent la localisation de la case à côté de la date (n° 1), de la
+ * rangée du haut (n° 2) et de la rangée du bas (n° 3) (\"-1\" = position GPS actuelle, \"0\"..\"4\" = localisation
+ * enregistrée) ; leurs options sont reconstruites à chaque ouverture par buildClayConfig (index.js). Le bandeau du bas
+ * n'a plus de réglage : « ville + tendance » si tous les affichages météo partagent la même localisation, sinon les
+ * numéros d'affichage + leur ville (ex. « 1|2 BORDEAUX 3|PARIS »). Chaque localisation k = 1..5 tient dans UN champ
+ * LOCk (« Ville, Pays » · « latitude, longitude » · « GPS ») résolu à l'enregistrement par processLocations (index.js) ;
+ * le résultat (texte normalisé) apparaît à la réouverture de la page.
  * Les éléments du groupe "cycles" ne sont visibles que si « Mouvement du poignet » = cycle des
  * complications (clayCustom dans index.js).
  * Les champs SET_NAME_NEW / SET_REPLACE / SET_DELETE / SET_LOAD / SET_LOAD_FLAG sont traités puis effacés
@@ -73,6 +81,37 @@ module.exports = function(lang) {
                    "defaultValue": "-1", "options": [UNCHANGED].concat(ROW_OPTS) });
       items.push({ "type": "select", "group": "cycles", "messageKey": "CYC" + k + "_BOT",  "label": t("Sous l'heure", "Below the time"),
                    "defaultValue": "-1", "options": [UNCHANGED].concat(ROW_OPTS) });
+    }
+    return items;
+  }
+
+  // Un seul cadre : d'où vient la météo de chaque affichage (n° 1 = case date, 2 = rangée du haut, 3 = rangée du bas)
+  // puis les 5 localisations enregistrées, UNE ligne chacune (ville, coordonnées ou « GPS »).
+  function locationItems() {
+    var gps = opt(-1, "Position actuelle (GPS)", "Current position (GPS)");
+    var items = [
+      { "type": "heading", "size": 4, "defaultValue": t("Localisations", "Locations") },
+      { "type": "text", "defaultValue": t(
+          "Choisissez d'où vient la météo de chaque affichage : la position GPS actuelle ou l'une de vos 5 localisations. Si le GPS est indisponible, la dernière position connue est utilisée.",
+          "Choose where each display's weather comes from: the current GPS position or one of your 5 locations. If GPS is unavailable, the last known position is used.") },
+      { "type": "select", "messageKey": "LOC_SIDE", "label": t("1 · Case à côté de la date", "1 · Box next to the date"),
+        "defaultValue": "-1", "options": [ gps ] },
+      { "type": "select", "messageKey": "LOC_TOP", "label": t("2 · Au-dessus de l'heure", "2 · Above the time"),
+        "defaultValue": "-1", "options": [ gps ] },
+      { "type": "select", "messageKey": "LOC_BOTTOM", "label": t("3 · Sous l'heure", "3 · Below the time"),
+        "defaultValue": "-1", "options": [ gps ] },
+      { "type": "text", "defaultValue": t(
+          "Bandeau du bas : « ville + tendance » si tous les affichages utilisent la même localisation ; sinon les numéros des affichages suivis de leur ville (ex. « 1|2 BORDEAUX 3|PARIS »).",
+          "Bottom banner: « city + trend » when all displays use the same location; otherwise the display numbers followed by their city (e.g. « 1|2 BORDEAUX 3|PARIS »).") },
+      { "type": "text", "defaultValue": t(
+          "Une ligne par localisation : « Ville, Pays » (ex. Bordeaux, France), OU des coordonnées (ex. 44.84, -0.58), OU « GPS » pour y enregistrer la position actuelle. Tout est traité à l'enregistrement : rouvrez la page pour voir le résultat. Ligne vide = localisation supprimée.",
+          "One line per location: « City, Country » (e.g. Bordeaux, France), OR coordinates (e.g. 44.84, -0.58), OR « GPS » to store the current position. Everything is processed on save: reopen the page to see the result. Empty line = location deleted.") },
+      { "type": "text", "id": "locsInfo", "defaultValue": "—" }
+    ];
+    var ph = [ "Bordeaux, France", "44.84, -0.58", "GPS", "", "" ];
+    for (var k = 1; k <= 5; k++) {
+      items.push({ "type": "input", "messageKey": "LOC" + k, "label": t("Localisation ", "Location ") + k, "defaultValue": "",
+                   "attributes": { "placeholder": ph[k - 1], "type": "text" } });
     }
     return items;
   }
@@ -257,6 +296,12 @@ module.exports = function(lang) {
           ]
         }
       ]
+    },
+
+    // ── Localisations (un seul cadre) ─────────────────────────────────────
+    {
+      "type": "section",
+      "items": locationItems()
     },
 
     // ── Mouvement du poignet + cycles ─────────────────────────────────────

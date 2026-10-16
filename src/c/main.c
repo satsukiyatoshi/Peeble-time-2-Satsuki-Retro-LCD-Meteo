@@ -93,7 +93,9 @@
 //   FORECAST_0 … FORECAST_9  colonnes de prévisions (voir ci-dessous)
 //   FORECAST_TS              heure (s Unix) du calcul des prévisions
 //   REQUEST_WEATHER          montre → téléphone : rafraîchir maintenant
-//   WEATHER_TREND            texte « VILLE : TENDANCE » (téléphone → montre)
+//   WEATHER_TREND            texte du bandeau du bas (téléphone → montre) : « VILLE : TENDANCE » si tous les affichages
+//                            partagent la même localisation, sinon « #1|2 BORDEAUX;3 PARIS » (groupes « numéros nom »
+//                            séparés par « ; », 1 = case date, 2 = rangée du haut, 3 = rangée du bas)
 //   LANGUAGE, DATE_FORMAT, TIME_FORMAT, ICON_STYLE, GHOST_LEVEL, FONT_STYLE, COMPLICATION, DIST_UNIT, RED_RING_LATERAL
 //                            réglages de la page Clay (téléphone → montre)
 //   SUNRISE_0..2, SUNSET_0..2  lever / coucher du soleil (s Unix) des 3 prochains jours
@@ -103,6 +105,12 @@
 //                            8-15 température max + 128, 16-23 min + 128, 24-28 jour du mois, 29-31 jour de semaine (0 = dimanche)
 //   HUMIDITY, UV_INDEX (×10), AIR_QUALITY (AQI européen), WIND_SPEED (km/h ×10) : -1 = indisponible
 //   TEMP_UNIT                0 = °C, 1 = °F (lettre C / F de la complication températures)
+//   WX_SLOTS                 masque des jeux de données météo auxquels le message s'applique :
+//                            bit 0 = case à côté de la date, bit 1 = rangée du haut, bit 2 = rangée du bas.
+//                            Chaque jeu vient d'UNE localisation choisie dans la page de réglages (le téléphone
+//                            n'envoie qu'un message par localisation, copié par la montre dans tous les jeux du masque).
+//                            Un message sans FORECAST_TS (tendance seule) ne touche à aucun jeu.
+//   WX_UTC_OFF               décalage UTC (s) de la localisation : heures des colonnes, lever / coucher, jour courant
 //   WEATHER_PERIOD           réglage Clay utilisé seulement par le téléphone
 // ATTENTION : dans le SDK, les MESSAGE_KEY_xxx sont des variables (extern), pas des
 // constantes : on ne peut pas les mettre dans un initialiseur statique. Le tableau
@@ -200,8 +208,7 @@ static const char s_label_tr[]  = CFG_LABEL_TOP_RIGHT;
 #endif
 static const char s_label_tc[]  = CFG_LABEL_CENTER;
 
-static Forecast s_fc[FC_COLS];
-static time_t   s_fc_ts       = 0;   // 0 = aucune prévision reçue
+static time_t   s_fc_ts       = 0;   // dernière réception d'un message météo (garde-fou du téléphone) ; 0 = aucune
 static time_t   s_last_req_ts = 0;   // dernière demande de rafraîchissement
 
 // Réglages d'affichage (défauts de config.h, remplacés par la page Clay)
@@ -222,18 +229,12 @@ static int  s_batt_color = CFG_BATT_COLOR;  // segments de la pile : 0 monochrom
 static bool s_charging   = false;           // en charge : les segments clignotent à la seconde
 
 static char s_toast[24] = "";              // message temporaire (nom du set) à la place de la ville / tendance
-static char s_weather_trend[64] = "METEO"; // « VILLE : TENDANCE » reçu du téléphone
+static char s_weather_trend[64] = "METEO"; // texte du bandeau du bas reçu du téléphone (« VILLE : TENDANCE » ou « #1|2 VILLE;3 VILLE »)
 
 static int  s_steps           = -1;   // -1 = indisponible (affiche -----)
 static int  s_hr              = 0;   // fréquence cardiaque (0 = pas de mesure)
 static int  s_dist            = -1;  // distance du jour en mètres (-1 = indisponible)
 static int  s_cal             = -1;  // calories du jour (-1 = indisponible)
-// Indicateurs envoyés par le téléphone (-1 = indisponible)
-static int  s_hum             = -1;  // humidité relative, %
-static int  s_uv10            = -1;  // indice UV × 10
-static int  s_aqi             = -1;  // indice de qualité de l'air (AQI européen)
-static int  s_wind10          = -1;  // vitesse du vent en km/h × 10
-
 // Tendance des 6 prochains jours (envoyée par le téléphone ; 3 colonnes par rangée)
 typedef struct {
   int code;   // code météo WMO du jour (FC_UNKNOWN = pas de donnée)
@@ -241,9 +242,52 @@ typedef struct {
   int dom;    // jour du mois (1-31)
   int wd;     // jour de la semaine (0 = dimanche)
 } DailyFc;
-static DailyFc s_daily[6];
-static time_t s_sunrise[3];          // levers du soleil (s Unix, 0 = inconnu)
-static time_t s_sunset[3];           // couchers du soleil
+
+// Données météo d'UNE localisation. Il y en a trois jeux, un par emplacement qui affiche de la météo :
+// la case à côté de la date, la rangée du haut, la rangée du bas. Chacun peut venir d'une localisation différente
+// (réglage du téléphone) ; deux emplacements qui partagent une localisation reçoivent le même message.
+typedef struct {
+  Forecast fc[FC_COLS];     // 10 colonnes horaires
+  DailyFc  daily[6];        // tendance J … J+5
+  time_t   sunrise[3];      // levers du soleil (s Unix, 0 = inconnu)
+  time_t   sunset[3];       // couchers du soleil
+  int      hum;             // humidité relative, % (-1 = indisponible)
+  int      uv10;            // indice UV × 10
+  int      aqi;             // qualité de l'air (AQI européen)
+  int      wind10;          // vitesse du vent en km/h × 10
+  int      off;             // décalage UTC de la localisation, en secondes
+  time_t   ts;              // instant du calcul des prévisions (0 = rien reçu)
+} WxSet;
+enum { WX_SIDE = 0, WX_TOP, WX_BOT, WX_N };
+static WxSet s_wx[WX_N];
+// Rangée du bas = suite de celle du haut (H+6 … H+10, J+3 … J+5) seulement si les deux rangées viennent de la
+// MÊME localisation ; sinon chaque rangée affiche le début de ses propres données. Déduit du masque reçu.
+static bool s_bot_cont = true;
+
+// Jour du mois, heure et minute d'un instant pour un lieu décalé de « off » secondes par rapport à l'UTC.
+// Calcul direct (sans localtime() / gmtime(), qui partagent un tampon avec le reste du dessin).
+static void loc_time(time_t t, int off, int *dom, int *hh, int *mm) {
+  int32_t s = (int32_t)t + off;
+  int32_t days = s / 86400, rem = s % 86400;
+  if (rem < 0) { rem += 86400; days--; }
+  if (hh) *hh = rem / 3600;
+  if (mm) *mm = (rem % 3600) / 60;
+  if (dom) {
+    int32_t z = days + 719468;
+    int32_t era = (z >= 0 ? z : z - 146096) / 146097;
+    int32_t doe = z - era * 146097;
+    int32_t yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    int32_t doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    int32_t mp  = (5 * doy + 2) / 153;
+    *dom = doy - (153 * mp + 2) / 5 + 1;
+  }
+}
+// Jour du mois « aujourd'hui » dans la localisation du jeu
+static int wx_dom(const WxSet *w) {
+  int d = 1;
+  loc_time(time(NULL), w->off, &d, NULL, NULL);
+  return d;
+}
 static int  s_batt_pct        = 100;
 
 // ── Custom fonts (loaded in window_load) ──────────────────────────────────
@@ -277,15 +321,15 @@ static GColor color_from_int(int v) {
 }
 
 // ── Prévisions : validité et choix de l'icône ────────────────────────────
-static bool fc_fresh(void) {
+static bool fc_fresh(const WxSet *w) {
 #if CFG_ICON_TEST
   return true;
 #endif
-  return s_fc_ts > 0 && (time(NULL) - s_fc_ts) <= FC_MAX_AGE_S;
+  return w->ts > 0 && (time(NULL) - w->ts) <= FC_MAX_AGE_S;
 }
 
-static bool fc_slot_valid(int i) {
-  return fc_fresh() && s_fc[i].code != FC_UNKNOWN;
+static bool fc_slot_valid(const WxSet *w, int i) {
+  return fc_fresh(w) && w->fc[i].code != FC_UNKNOWN;
 }
 
 // Ghost segments behind real value – simulates unlit LCD segments.
@@ -472,6 +516,80 @@ static void trend_localize(const char *in, char *out, size_t n) {
   }
 }
 
+// Raccourcit d'un caractère un nom de ville terminé par UN SEUL « . » (« PARIS » → « PARI. » → « PAR. »…).
+// Retourne false s'il ne reste plus rien à couper (une lettre + « . »).
+static bool cg_shorten(char *s) {
+  size_t l = strlen(s);
+  size_t keep = (l > 0 && s[l - 1] == '.') ? l - 1 : l;   // longueur sans le point final
+  if (keep <= 1) return false;
+  keep--;
+  while (keep > 1 && (((unsigned char)s[keep] & 0xC0) == 0x80)) keep--;      // pas au milieu d'un caractère UTF-8
+  while (keep > 1 && (s[keep - 1] == '-' || s[keep - 1] == ' ')) keep--;      // pas de « -. » ni « . » après un espace
+  s[keep] = '.';
+  s[keep + 1] = '\0';
+  return true;
+}
+
+// Bandeau à plusieurs localisations : « #1|2 BORDEAUX;3 PARIS » → « 1|2 BORDEAUX 3 PARIS » (numéros en bleu,
+// villes en jaune). Les noms sont raccourcis (le plus long d'abord, terminé par « . ») jusqu'à tenir dans la largeur.
+#define CG_MAX 3
+static void draw_city_groups(GContext *ctx, GFont font, int y, int W, int H, const char *spec) {
+  char num[CG_MAX][8];
+  char name[CG_MAX][20];
+  int n = 0;
+  const char *p = spec;
+  while (*p && n < CG_MAX) {
+    const char *sp  = strchr(p, ' ');
+    const char *end = strchr(p, ';');
+    if (!sp || (end && sp > end)) break;                      // groupe mal formé : ignoré
+    size_t nl = (size_t)(sp - p);
+    if (nl >= sizeof(num[0])) nl = sizeof(num[0]) - 1;
+    memcpy(num[n], p, nl); num[n][nl] = '\0';
+    size_t cl = end ? (size_t)(end - (sp + 1)) : strlen(sp + 1);
+    if (cl >= sizeof(name[0])) cl = sizeof(name[0]) - 1;
+    memcpy(name[n], sp + 1, cl); name[n][cl] = '\0';
+    n++;
+    if (!end) break;
+    p = end + 1;
+  }
+  if (n == 0) return;
+
+  const int margin = 3;
+  const int max_w = W - (3 * margin);
+  const int space_w = trend_text_w(" ", font);
+  int num_w[CG_MAX], name_w[CG_MAX];
+  int total = 0;
+
+  for (int guard = 0; guard < 80; guard++) {
+    total = (n - 1) * space_w;                                // un espace entre deux groupes
+    int widest = -1;
+    for (int i = 0; i < n; i++) {
+      num_w[i]  = trend_text_w(num[i], font);
+      name_w[i] = trend_text_w(name[i], font);
+      total += num_w[i] + space_w + name_w[i];
+      size_t l = strlen(name[i]);
+      size_t keep = (l > 0 && name[i][l - 1] == '.') ? l - 1 : l;
+      if (keep > 1 && (widest < 0 || name_w[i] > name_w[widest])) widest = i;
+    }
+    if (total <= max_w || widest < 0) break;
+    cg_shorten(name[widest]);
+  }
+  if (total > max_w) total = max_w;
+
+  int x = (W - total) / 2;
+  if (x < margin) x = margin;
+  for (int i = 0; i < n; i++) {
+    graphics_context_set_text_color(ctx, color_from_int(CFG_COLOR_FORECAST_LABEL));
+    graphics_draw_text(ctx, num[i], font, GRect(x, y, num_w[i] + 2, H - y),
+                       GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+    x += num_w[i] + space_w;
+    graphics_context_set_text_color(ctx, GColorYellow);
+    graphics_draw_text(ctx, name[i], font, GRect(x, y, name_w[i] + 2, H - y),
+                       GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+    x += name_w[i] + space_w;
+  }
+}
+
 static void draw_weather_trend(GContext *ctx, GFont font, int y, int W, int H) {
   char city[48];
   char trend[48];
@@ -497,6 +615,12 @@ static void draw_weather_trend(GContext *ctx, GFont font, int y, int W, int H) {
 
   strncpy(source, s_weather_trend, sizeof(source) - 1);
   source[sizeof(source) - 1] = '\0';
+
+  // Plusieurs localisations : « #1|2 BORDEAUX;3 PARIS » (pas de tendance, numéros d'affichage + villes)
+  if (source[0] == '#') {
+    draw_city_groups(ctx, font, y, W, H, source + 1);
+    return;
+  }
 
   char *sep = strstr(source, " : ");
 
@@ -1214,14 +1338,13 @@ static time_t next_event(const time_t *arr, time_t now) {
   return best;
 }
 
-// Heure locale « HH:MM » (12 h si choisi, sans indicateur A/P). Attention : localtime()
-// réutilise un tampon unique : l'appelant sauvegarde / restaure sa struct tm.
-static void fmt_clock(time_t t, char *buf, size_t n) {
+// Heure « HH:MM » dans la localisation (décalage « off » en secondes ; 12 h si choisi, sans indicateur A/P).
+static void fmt_clock(time_t t, int off, char *buf, size_t n) {
   if (!t) { snprintf(buf, n, "--:--"); return; }
-  struct tm *p = localtime(&t);
-  int h = p->tm_hour;
+  int h, m;
+  loc_time(t, off, NULL, &h, &m);
   if (s_time12) { h %= 12; if (h == 0) h = 12; }
-  snprintf(buf, n, "%02d:%02d", h, p->tm_min);
+  snprintf(buf, n, "%02d:%02d", h, m);
 }
 
 // Distance du jour en km ou miles, 1 décimale (« xx.x » : moins précis, mais affiche de plus grandes distances)
@@ -1239,8 +1362,20 @@ static void fmt_dist(char *buf, size_t n) {
 static void draw_stat_cell(GContext *ctx, int x, int w, int y0, const uint16_t *icon, GColor icol,
                            const char *value, const char *unit,
                            GFont f_val, GFont f_small, GFont f_unit, int lvl) {
-  draw_bits(ctx, icon, x + 3, y0 + (STAT_CELL_H - WI_H) / 2,
-            s_icon_col ? icol : color_from_int(CFG_COLOR_FORECAST_ICON));
+  // FC / calories / pas : jusqu'à 3 (FC) ou 4 (calories, pas) chiffres, icône + valeur en DSEG ; à partir de 5 chiffres, l'icône
+  // est effacée pour donner toute la largeur à la valeur (et, si elle ne tient toujours pas, petite police ci-dessous)
+  bool no_icon = (icon == WI_HEART || icon == WI_FLAME || icon == WI_FEET) && value[0] >= '0' && value[0] <= '9' && strlen(value) >= 5;
+  if (!no_icon)
+    draw_bits(ctx, icon, x + 3, y0 + (STAT_CELL_H - WI_H) / 2,
+              s_icon_col ? icol : color_from_int(CFG_COLOR_FORECAST_ICON));
+  // Mesure sans niveau (FC, calories, distance) : si la valeur ne tient pas en DSEG à côté de l'unité mais tient
+  // sans elle, on retire l'unité (le cœur / la flamme / le repère suffisent) plutôt que de passer en petite police.
+  if (unit && unit[0] && lvl < 0) {
+    int vw = trend_text_w(value, f_val);
+    int avail_u = (x + w - 5) - (trend_text_w(unit, f_unit) + 2 + 3) - (x + 3 + WI_W + 3);
+    int avail_n = (x + w - 3) - (x + 3 + WI_W + 1);
+    if (vw > avail_u && vw <= avail_n) unit = NULL;
+  }
   // Sans unité (soleil, pas) : un peu plus de place pour la valeur, sinon « 07:42 » ne tient
   // plus en DSEG depuis que les demi-rangées sont recentrées sur le « : » (91 px au lieu de 95)
   bool has_unit = (unit && unit[0]);
@@ -1260,38 +1395,41 @@ static void draw_stat_cell(GContext *ctx, int x, int w, int y0, const uint16_t *
       graphics_fill_rect(ctx, GRect(sx, y0 + 11, LVL_SQ, LVL_SQ), 0, GCornerNone);
     }
   }
-  int vx = x + 3 + WI_W + (has_unit ? 3 : 1);
+  int vx = no_icon ? x + 3 : x + 3 + WI_W + (has_unit ? 3 : 1);
   int vr = right - (unit_w ? unit_w + 3 : 0);
   int avail = vr - vx;
+  // FC / calories / pas à côté de leur icône : chiffres (ou tirets) décalés de 2 px vers la gauche (même largeur de test)
+  int tx = vx - ((!no_icon && (icon == WI_HEART || icon == WI_FLAME || icon == WI_FEET)) ? 2 : 0);
   graphics_context_set_text_color(ctx, color_from_int(CFG_COLOR_FORECAST_TEMP));   // texte toujours blanc
   if (trend_text_w(value, f_val) <= avail) {
-    graphics_draw_text(ctx, value, f_val, GRect(vx, y0 + 6, avail, 24),
+    graphics_draw_text(ctx, value, f_val, GRect(tx, y0 + 6, avail, 24),
                        GTextOverflowModeFill, GTextAlignmentRight, NULL);
   } else {
-    graphics_draw_text(ctx, value, f_small, GRect(vx, y0 + 8, avail, 18),
+    graphics_draw_text(ctx, value, f_small, GRect(tx, y0 + 8, avail, 18),
                        GTextOverflowModeFill, GTextAlignmentRight, NULL);
   }
 }
 
 // Tendance : 3 colonnes (jour + date · icône de la journée · min / max). day_base = 0 : jours J à J+2 ;
 // day_base = 3 : jours J+3 à J+5 (les deux rangées en tendance se suivent : 6 jours)
-static void draw_trend_row(GContext *ctx, int x0, int group_w, int y0, int day_base, GFont f_tiny, const struct tm *today) {
+static void draw_trend_row(GContext *ctx, const WxSet *w, int x0, int group_w, int y0, int day_base, GFont f_tiny) {
   GColor c_lbl  = color_from_int(CFG_COLOR_FORECAST_LABEL);
   GColor c_icon = color_from_int(CFG_COLOR_FORECAST_ICON);
   GColor c_sep  = color_from_int(CFG_COLOR_FORECAST_GHOST);
   GColor c_temp = color_from_int(CFG_COLOR_FORECAST_TEMP);
   int cw = group_w / 3;
 
-  // La première colonne est toujours « aujourd'hui » : on saute les jours déjà passés
+  // La première colonne est toujours « aujourd'hui » (dans la localisation) : on saute les jours déjà passés
+  int today_dom = wx_dom(w);
   int start = -1;
   for (int i = 0; i < 6; i++) {
-    if (s_daily[i].code != FC_UNKNOWN && s_daily[i].dom == today->tm_mday) { start = i; break; }
+    if (w->daily[i].code != FC_UNKNOWN && w->daily[i].dom == today_dom) { start = i; break; }
   }
 
   for (int j = 0; j < 3; j++) {
     int cx = x0 + j * cw;
     int idx = (start >= 0) ? start + day_base + j : -1;
-    bool ok = (idx >= 0 && idx < 6 && s_daily[idx].code != FC_UNKNOWN);
+    bool ok = (idx >= 0 && idx < 6 && w->daily[idx].code != FC_UNKNOWN);
 
     if (j > 0) {
       graphics_context_set_stroke_color(ctx, c_sep);
@@ -1299,18 +1437,18 @@ static void draw_trend_row(GContext *ctx, int x0, int group_w, int y0, int day_b
     }
 
     char lbl[12];
-    if (ok) snprintf(lbl, sizeof(lbl), "%s %d", ((s_lang == 1) ? WD_EN : WD_FR)[s_daily[idx].wd % 7], s_daily[idx].dom);
+    if (ok) snprintf(lbl, sizeof(lbl), "%s %d", ((s_lang == 1) ? WD_EN : WD_FR)[w->daily[idx].wd % 7], w->daily[idx].dom);
     else    snprintf(lbl, sizeof(lbl), "--");
     graphics_context_set_text_color(ctx, c_lbl);
     graphics_draw_text(ctx, lbl, f_tiny, GRect(cx + 2, y0 + FC_LBL_DY, cw - 2, 11),
                        GTextOverflowModeFill, GTextAlignmentLeft, NULL);
 
     int y_ico = y0 + FC_ICO_DY;
-    if (ok) draw_icon(ctx, weather_icon(s_daily[idx].code, true), cx + 1, y_ico + FC_ICON16_DY, c_icon);
+    if (ok) draw_icon(ctx, weather_icon(w->daily[idx].code, true), cx + 1, y_ico + FC_ICON16_DY, c_icon);
 
     // min et max en blanc, séparateur « / » en jaune
     char lo[8], hi[8];
-    if (ok) { snprintf(lo, sizeof(lo), "%d", s_daily[idx].tmin); snprintf(hi, sizeof(hi), "%d", s_daily[idx].tmax); }
+    if (ok) { snprintf(lo, sizeof(lo), "%d", w->daily[idx].tmin); snprintf(hi, sizeof(hi), "%d", w->daily[idx].tmax); }
     else    { snprintf(lo, sizeof(lo), "--");                    hi[0] = '\0'; }
     int tx = cx + 20;
     int lw = trend_text_w(lo, f_tiny);
@@ -1479,46 +1617,46 @@ static void draw_sec_text(GContext *ctx, int x, int y_mid, int w, GColor color) 
 }
 
 // Texte, icône, couleur et unité d'une mesure
-static void metric_info(int m, char *buf, size_t n, const uint16_t **icon, GColor *col, const char **unit, int *lvl) {
+static void metric_info(const WxSet *w, int m, char *buf, size_t n, const uint16_t **icon, GColor *col, const char **unit, int *lvl) {
   *unit = NULL;
   *lvl = -1;   // niveau 0 / 1 / 2 (UV, air, humidité, vent) : couleur du carré au-dessus de l'unité
   switch (m) {
     case M_HR:
       if (s_hr > 0) snprintf(buf, n, "%d", s_hr > 999 ? 999 : s_hr); else snprintf(buf, n, "---");
-      *icon = WI_HEART; *col = color_from_int(CFG_COLOR_ICON_HEART); *unit = "BPM";
+      *icon = WI_HEART; *col = color_from_int(CFG_COLOR_ICON_HEART);   // pas d'unité texte : le cœur suffit (place gagnée)
       break;
     case M_DIST:
       fmt_dist(buf, n);
       *icon = WI_PIN; *col = color_from_int(CFG_COLOR_ICON_PIN); *unit = s_dist_mi ? "MI" : "KM";
       break;
     case M_CAL:
-      if (s_cal >= 0) snprintf(buf, n, "%d", s_cal > 99999 ? 99999 : s_cal); else snprintf(buf, n, "-----");
-      *icon = WI_FLAME; *col = color_from_int(CFG_COLOR_ICON_FLAME); *unit = "KCAL";
+      if (s_cal >= 0) snprintf(buf, n, "%d", s_cal > 99999 ? 99999 : s_cal); else snprintf(buf, n, "----");
+      *icon = WI_FLAME; *col = color_from_int(CFG_COLOR_ICON_FLAME);   // pas d'unité texte : la flamme suffit (place gagnée)
       break;
     case M_UV:
-      if (fc_fresh() && s_uv10 >= 0) {
-        snprintf(buf, n, "%d.%d", (s_uv10 > 999 ? 999 : s_uv10) / 10, (s_uv10 > 999 ? 999 : s_uv10) % 10);
-        *lvl = uv_level(s_uv10);
+      if (fc_fresh(w) && w->uv10 >= 0) {
+        snprintf(buf, n, "%d.%d", (w->uv10 > 999 ? 999 : w->uv10) / 10, (w->uv10 > 999 ? 999 : w->uv10) % 10);
+        *lvl = uv_level(w->uv10);
       } else snprintf(buf, n, "-.-");
       *icon = WI_UVSUN; *col = color_from_int(CFG_COLOR_ICON_UV); *unit = "UV";
       break;
     case M_AQI:
-      if (fc_fresh() && s_aqi >= 0) { snprintf(buf, n, "%d", s_aqi > 999 ? 999 : s_aqi); *lvl = aqi_level(s_aqi); }
+      if (fc_fresh(w) && w->aqi >= 0) { snprintf(buf, n, "%d", w->aqi > 999 ? 999 : w->aqi); *lvl = aqi_level(w->aqi); }
       else snprintf(buf, n, "---");
       *icon = WI_AIR; *col = color_from_int(CFG_COLOR_ICON_AIR); *unit = "AQI";
       break;
     case M_HUM:
-      if (fc_fresh() && s_hum >= 0) { snprintf(buf, n, "%d", s_hum > 100 ? 100 : s_hum); *lvl = hum_level(s_hum); }
+      if (fc_fresh(w) && w->hum >= 0) { snprintf(buf, n, "%d", w->hum > 100 ? 100 : w->hum); *lvl = hum_level(w->hum); }
       else snprintf(buf, n, "---");
       *icon = WI_HUMID; *col = color_from_int(CFG_COLOR_ICON_HUM); *unit = "%";
       break;
     case M_WIND:
-      if (fc_fresh() && s_wind10 >= 0) { int wv = wind_disp(s_wind10); snprintf(buf, n, "%d", wv > 999 ? 999 : wv); *lvl = wind_level(s_wind10); }
+      if (fc_fresh(w) && w->wind10 >= 0) { int wv = wind_disp(w->wind10); snprintf(buf, n, "%d", wv > 999 ? 999 : wv); *lvl = wind_level(w->wind10); }
       else snprintf(buf, n, "---");
       *icon = WI_WIND; *col = color_from_int(CFG_COLOR_ICON_WIND); *unit = s_dist_mi ? "MPH" : "KM/H";
       break;
     default:   // M_STEPS
-      if (s_steps >= 0) snprintf(buf, n, "%d", s_steps > 99999 ? 99999 : s_steps); else snprintf(buf, n, "-----");
+      if (s_steps >= 0) snprintf(buf, n, "%d", s_steps > 99999 ? 99999 : s_steps); else snprintf(buf, n, "----");
       *icon = WI_FEET; *col = color_from_int(CFG_COLOR_ICON_STEPS);
       break;
   }
@@ -1541,9 +1679,9 @@ static bool comp_pair(int kind, int *l, int *r) {
 
 // Une rangée (hors météo horaire) : 2 demi-rangées (lever + coucher, ou 2 mesures parmi
 // FC, distance, calories, pas) ou la tendance sur 3 jours.
-static void draw_comp_row(GContext *ctx, int kind, int x0, int group_w, int y0, int mid, int day_base,
-                          GFont f_tiny, GFont f_lbl, GFont f_val, const struct tm *today) {
-  if (kind == CK_TREND) { draw_trend_row(ctx, x0, group_w, y0, day_base, f_tiny, today); return; }
+static void draw_comp_row(GContext *ctx, int kind, const WxSet *w, int x0, int group_w, int y0, int mid, int day_base,
+                          GFont f_tiny, GFont f_lbl, GFont f_val) {
+  if (kind == CK_TREND) { draw_trend_row(ctx, w, x0, group_w, y0, day_base, f_tiny); return; }
 
   // Paire : séparateur EXACTEMENT sur l'axe vertical du « : » de l'heure (« mid », centre du
   // panneau où l'heure est centrée) ; deux demi-rangées de même largeur, symétriques par rapport à lui.
@@ -1559,14 +1697,14 @@ static void draw_comp_row(GContext *ctx, int kind, int x0, int group_w, int y0, 
   int la = -1, lb = -1;   // niveaux des textes (-1 = couleur normale)
   if (kind == CK_SUN) {   // prochain lever et prochain coucher
     time_t n = time(NULL);
-    fmt_clock(next_event(s_sunrise, n), a, sizeof(a));
-    fmt_clock(next_event(s_sunset,  n), b, sizeof(b));
+    fmt_clock(next_event(w->sunrise, n), w->off, a, sizeof(a));
+    fmt_clock(next_event(w->sunset,  n), w->off, b, sizeof(b));
     ia = WI_SUNRISE; ca = color_from_int(CFG_COLOR_ICON_SUN);
     ib = WI_SUNSET;  cb = color_from_int(CFG_COLOR_ICON_SUN);
   } else {
     if (!comp_pair(kind, &ml, &mr)) { ml = M_HR; mr = M_DIST; }
-    metric_info(ml, a, sizeof(a), &ia, &ca, &ua, &la);
-    metric_info(mr, b, sizeof(b), &ib, &cb, &ub, &lb);
+    metric_info(w, ml, a, sizeof(a), &ia, &ca, &ua, &la);
+    metric_info(w, mr, b, sizeof(b), &ib, &cb, &ub, &lb);
   }
   draw_stat_cell(ctx, mid - half, half, y0, ia, ca, a, ua, f_val, f_tiny, f_lbl, la);
   draw_stat_cell(ctx, mid,        half, y0, ib, cb, b, ub, f_val, f_tiny, f_lbl, lb);
@@ -1743,7 +1881,8 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
     char env_tag = 0;                  // petit repère à gauche de l'icône : '%' (humidité), 'K' / 'M' (vent km/h / mph)
     const char *env_unit = NULL;       // unité en petites lettres : « UV » (entre valeur et icône), « AQI » (à droite de la valeur, sans icône)
     int sec_mode = 0;                  // secondes : 2 chiffres à gauche + texte « SEC » sur la largeur des 3 autres chiffres
-    bool env_ok = fc_fresh();
+    const WxSet *wxs = &s_wx[WX_SIDE];   // données météo de la localisation choisie pour cette case
+    bool env_ok = fc_fresh(wxs);
     switch (s_comp) {
       case 1:   // fréquence cardiaque (BPM) : 3 chiffres de gauche + logo de battement
         hr_logo = 1;
@@ -1767,17 +1906,14 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
       case 3: { // prochain lever / coucher du soleil (heure locale, 24 h)
         time_t best = 0;
         for (int i = 0; i < 3; i++) {
-          if (s_sunrise[i] > now_t && (best == 0 || s_sunrise[i] < best)) { best = s_sunrise[i]; arrow = 1; }
-          if (s_sunset[i]  > now_t && (best == 0 || s_sunset[i]  < best)) { best = s_sunset[i];  arrow = 2; }
+          if (wxs->sunrise[i] > now_t && (best == 0 || wxs->sunrise[i] < best)) { best = wxs->sunrise[i]; arrow = 1; }
+          if (wxs->sunset[i]  > now_t && (best == 0 || wxs->sunset[i]  < best)) { best = wxs->sunset[i];  arrow = 2; }
         }
         if (best) {
-          // localtime() réutilise le même tampon que tnow : on le sauvegarde et on le restaure
-          struct tm saved = *tnow;
-          struct tm *ev = localtime(&best);
-          int eh = ev->tm_hour;
+          int eh, em;
+          loc_time(best, wxs->off, NULL, &eh, &em);        // heure locale de la localisation
           if (s_time12) { eh %= 12; if (eh == 0) eh = 12; }   // 12 h : pas d'indicateur A/P ici
-          snprintf(cstr, sizeof(cstr), "%02d:%02d", eh, ev->tm_min);
-          *tnow = saved;
+          snprintf(cstr, sizeof(cstr), "%02d:%02d", eh, em);
         } else {
           snprintf(cstr, sizeof(cstr), "--:--");
           arrow = 0;
@@ -1786,11 +1922,11 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
         break;
       }
       case 6: { // températures min / max du jour courant : « 12:26 » + lettre C ou F
-        int tmn = 0, tmx = 0;
+        int tmn = 0, tmx = 0, today_dom = wx_dom(wxs);   // « aujourd'hui » dans la localisation de la case
         bool have = false;
         for (int i = 0; i < 6; i++) {
-          if (s_daily[i].code != FC_UNKNOWN && s_daily[i].dom == tnow->tm_mday) {
-            tmn = s_daily[i].tmin; tmx = s_daily[i].tmax; have = true; break;
+          if (wxs->daily[i].code != FC_UNKNOWN && wxs->daily[i].dom == today_dom) {
+            tmn = wxs->daily[i].tmin; tmx = wxs->daily[i].tmax; have = true; break;
           }
         }
         if (!have) {
@@ -1817,28 +1953,28 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
         break;
       }
       case 7:   // humidité relative
-        if (env_ok && s_hum >= 0) { snprintf(cstr, sizeof(cstr), "%d", s_hum > 100 ? 100 : s_hum); env_lvl = hum_level(s_hum); }
+        if (env_ok && wxs->hum >= 0) { snprintf(cstr, sizeof(cstr), "%d", wxs->hum > 100 ? 100 : wxs->hum); env_lvl = hum_level(wxs->hum); }
         else                      snprintf(cstr, sizeof(cstr), "---");
         ghost = "888"; env_icon = WI_HUMID; env_tag = '%';
         break;
       case 8:   // indice UV arrondi à l'entier (10.7 → 11, 0.6 → 1) : 2 chiffres + « UV » + icône
-        if (env_ok && s_uv10 >= 0) {
-          int u = (s_uv10 + 5) / 10;
+        if (env_ok && wxs->uv10 >= 0) {
+          int u = (wxs->uv10 + 5) / 10;
           snprintf(cstr, sizeof(cstr), "%d", u > 99 ? 99 : u);
-          env_lvl = uv_level(s_uv10);
+          env_lvl = uv_level(wxs->uv10);
         } else snprintf(cstr, sizeof(cstr), "--");
         ghost = "88"; env_icon = WI_UVSUN; env_unit = "UV";
         break;
       case 9:   // qualité de l'air (AQI européen)
-        if (env_ok && s_aqi >= 0) { snprintf(cstr, sizeof(cstr), "%d", s_aqi > 999 ? 999 : s_aqi); env_lvl = aqi_level(s_aqi); }
+        if (env_ok && wxs->aqi >= 0) { snprintf(cstr, sizeof(cstr), "%d", wxs->aqi > 999 ? 999 : wxs->aqi); env_lvl = aqi_level(wxs->aqi); }
         else                      snprintf(cstr, sizeof(cstr), "---");
         ghost = "888"; env_unit = "AQI";   // pas d'icône : l'unité (colorée selon le niveau) est à droite de la valeur
         break;
       case 10:  // vitesse du vent (km/h ou mph selon l'unité de distance)
-        if (env_ok && s_wind10 >= 0) {
-          int wv = wind_disp(s_wind10);
+        if (env_ok && wxs->wind10 >= 0) {
+          int wv = wind_disp(wxs->wind10);
           snprintf(cstr, sizeof(cstr), "%d", wv > 999 ? 999 : wv);
-          env_lvl = wind_level(s_wind10);
+          env_lvl = wind_level(wxs->wind10);
         } else snprintf(cstr, sizeof(cstr), "---");
         ghost = "888"; env_icon = WI_WIND; env_tag = s_dist_mi ? 'M' : 'K';
         break;
@@ -2172,8 +2308,7 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
     int group_w = FC_PER_ROW * col_w;
     int x0 = (W - group_w) / 2 + PX(4);
 
-    bool fresh = fc_fresh();
-    // localtime() (complication soleil) réutilise le tampon de tnow : on le sauvegarde / restaure
+    // localtime() réutilise le tampon de tnow : on le sauvegarde / restaure
     struct tm tsave = *tnow;
     int kinds[FC_ROWS] = { s_comp_top, s_comp_bot };
     // Deux rangées météo : elles se suivent (H+1…H+5 puis H+6…H+10) ; une seule : H+1…H+5
@@ -2189,17 +2324,20 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
     for (int row = 0; row < FC_ROWS; row++) {
       int y0    = (row == 0) ? y_btn : y_fc;   // haut de la cellule
       int y_ico = y0 + FC_ICO_DY;
+      const WxSet *wr = &s_wx[row == 0 ? WX_TOP : WX_BOT];   // données de la localisation choisie pour cette rangée
+      bool fresh = fc_fresh(wr);
+      bool cont  = (row == 1) && s_bot_cont;                  // rangée du bas = suite du haut (même localisation)
 
       if (kinds[row] != CK_WEATHER) {   // autre complication : FC + distance, calories + pas, soleil, tendance 3 jours
-        draw_comp_row(ctx, kinds[row], x0, group_w, y0, ix + iw / 2, (both_tr && row == 1) ? 3 : 0, f_tiny, f_lbl, f_date, &tsave);
+        draw_comp_row(ctx, kinds[row], wr, x0, group_w, y0, ix + iw / 2, (both_tr && cont) ? 3 : 0, f_tiny, f_lbl, f_date);
         continue;
       }
-      int fc_base = (both_wx && row == 1) ? FC_PER_ROW : 0;
+      int fc_base = (both_wx && cont) ? FC_PER_ROW : 0;
 
       for (int c = 0; c < FC_PER_ROW; c++) {
         int i  = fc_base + c;
         int cx = x0 + c * col_w;
-        bool ok = fc_slot_valid(i);
+        bool ok = fc_slot_valid(wr, i);
 
         if (c > 0) {   // séparateur vertical discret
           graphics_context_set_stroke_color(ctx, c_ghost);
@@ -2213,11 +2351,11 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
           snprintf(lbl, sizeof(lbl), "--");
         } else if (s_time12) {
           // 12 h : « 10HA » (matin) / « 10HP » (après-midi) ; minuit = 12HA, midi = 12HP
-          int h12 = s_fc[i].hour % 12;
+          int h12 = wr->fc[i].hour % 12;
           if (h12 == 0) h12 = 12;
-          snprintf(lbl, sizeof(lbl), "%dH%c", h12, s_fc[i].hour < 12 ? 'A' : 'P');
+          snprintf(lbl, sizeof(lbl), "%dH%c", h12, wr->fc[i].hour < 12 ? 'A' : 'P');
         } else {
-          snprintf(lbl, sizeof(lbl), "%dH", s_fc[i].hour);
+          snprintf(lbl, sizeof(lbl), "%dH", wr->fc[i].hour);
         }
         graphics_context_set_text_color(ctx, c_lbl);
         graphics_draw_text(ctx, lbl, f_tiny,
@@ -2232,13 +2370,13 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
                              GTextAlignmentLeft, NULL);
         }
         if (ok) {
-          int ic = weather_icon(s_fc[i].code, s_fc[i].day);
+          int ic = weather_icon(wr->fc[i].code, wr->fc[i].day);
           draw_icon(ctx, ic, cx + PX(1), y_ico + FC_ICON16_DY, c_icon);
         }
 
         // température
         char tb[8];
-        if (ok) snprintf(tb, sizeof(tb), "%d", s_fc[i].temp);
+        if (ok) snprintf(tb, sizeof(tb), "%d", wr->fc[i].temp);
         else    snprintf(tb, sizeof(tb), "--");
         graphics_context_set_text_color(ctx, c_temp);
         graphics_draw_text(ctx, tb, f_tiny,
@@ -2510,6 +2648,44 @@ static void refresh_wrist(void) {
   if (s_wrist) accel_tap_service_subscribe(tap_handler);
 }
 
+// Copie dans un jeu les données d'une localisation (prévisions, tendance, soleil, indicateurs, décalage UTC).
+// Les indicateurs absents du message sont remis à « indisponible » : ils ne doivent pas venir d'une ancienne localisation.
+static void wx_apply(DictionaryIterator *iter, WxSet *w, time_t ts) {
+  Tuple *t;
+  w->ts = ts;
+  w->hum = w->uv10 = w->aqi = w->wind10 = -1;
+  if ((t = dict_find(iter, MESSAGE_KEY_WX_UTC_OFF)))  w->off    = (int)t->value->int32;
+  if ((t = dict_find(iter, MESSAGE_KEY_HUMIDITY)))    w->hum    = (int)t->value->int32;
+  if ((t = dict_find(iter, MESSAGE_KEY_UV_INDEX)))    w->uv10   = (int)t->value->int32;
+  if ((t = dict_find(iter, MESSAGE_KEY_AIR_QUALITY))) w->aqi    = (int)t->value->int32;
+  if ((t = dict_find(iter, MESSAGE_KEY_WIND_SPEED)))  w->wind10 = (int)t->value->int32;
+  // Tendance sur 6 jours : code, max, min, jour du mois, jour de la semaine
+  for (int i = 0; i < 6; i++) {
+    if ((t = dict_find(iter, DAILY_KEYS[i]))) {
+      uint32_t v = (uint32_t)t->value->int32;
+      w->daily[i].code = (int)(v & 0x7F);
+      w->daily[i].tmax = (int)((v >> 8) & 0xFF) - 128;
+      w->daily[i].tmin = (int)((v >> 16) & 0xFF) - 128;
+      w->daily[i].dom  = (int)((v >> 24) & 0x1F);
+      w->daily[i].wd   = (int)((v >> 29) & 0x07);
+    }
+  }
+  // Lever / coucher du soleil (0 = inconnu)
+  for (int i = 0; i < 3; i++) {
+    if ((t = dict_find(iter, SUNRISE_KEYS[i]))) w->sunrise[i] = (time_t)t->value->int32;
+    if ((t = dict_find(iter, SUNSET_KEYS[i])))  w->sunset[i]  = (time_t)t->value->int32;
+  }
+  for (int i = 0; i < FC_COLS; i++) {
+    if ((t = dict_find(iter, FORECAST_KEYS[i]))) {
+      int32_t v = t->value->int32;
+      w->fc[i].code  = (int)(v & 0x7F);
+      w->fc[i].day   = ((v >> 7) & 1) != 0;
+      w->fc[i].temp  = (int)((v >> 8) & 0xFF) - 128;
+      w->fc[i].hour  = (int)((v >> 16) & 0xFF);
+    }
+  }
+}
+
 // ── AppMessage : prévisions, tendance météo et réglages de la page Clay ──
 static void inbox_received(DictionaryIterator *iter, void *context) {
   Tuple *t;
@@ -2560,10 +2736,6 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
     persist_write_int(PERSIST_RED_RING, r_r_sides);
     if (s_canvas) layer_mark_dirty(s_canvas);
   }
-  if ((t = dict_find(iter, MESSAGE_KEY_HUMIDITY)))    s_hum    = (int)t->value->int32;
-  if ((t = dict_find(iter, MESSAGE_KEY_UV_INDEX)))    s_uv10   = (int)t->value->int32;
-  if ((t = dict_find(iter, MESSAGE_KEY_AIR_QUALITY))) s_aqi    = (int)t->value->int32;
-  if ((t = dict_find(iter, MESSAGE_KEY_WIND_SPEED)))  s_wind10 = (int)t->value->int32;
   if ((t = dict_find(iter, MESSAGE_KEY_TEMP_UNIT))) {
     s_temp_f = (t->value->int32 == 1) ? 1 : 0;
     persist_write_int(PERSIST_TEMP_F, s_temp_f);
@@ -2605,41 +2777,27 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
       persist_write_int(PERSIST_PERIOD, s_period);
     }
   }
-  // Tendance sur 6 jours : code, max, min, jour du mois, jour de la semaine
-  for (int i = 0; i < 6; i++) {
-    if ((t = dict_find(iter, DAILY_KEYS[i]))) {
-      uint32_t v = (uint32_t)t->value->int32;
-      s_daily[i].code = (int)(v & 0x7F);
-      s_daily[i].tmax = (int)((v >> 8) & 0xFF) - 128;
-      s_daily[i].tmin = (int)((v >> 16) & 0xFF) - 128;
-      s_daily[i].dom  = (int)((v >> 24) & 0x1F);
-      s_daily[i].wd   = (int)((v >> 29) & 0x07);
-    }
-  }
-  // Lever / coucher du soleil (0 = inconnu)
-  for (int i = 0; i < 3; i++) {
-    if ((t = dict_find(iter, SUNRISE_KEYS[i]))) s_sunrise[i] = (time_t)t->value->int32;
-    if ((t = dict_find(iter, SUNSET_KEYS[i])))  s_sunset[i]  = (time_t)t->value->int32;
-  }
 #if CFG_ICON_TEST
   if (s_canvas) layer_mark_dirty(s_canvas);
   return;   // mode test : on garde les prévisions factices
 #endif
 
-  for (int i = 0; i < FC_COLS; i++) {
-    if ((t = dict_find(iter, FORECAST_KEYS[i]))) {
-      int32_t v = t->value->int32;
-      s_fc[i].code  = (int)(v & 0x7F);
-      s_fc[i].day   = ((v >> 7) & 1) != 0;
-      s_fc[i].temp  = (int)((v >> 8) & 0xFF) - 128;
-      s_fc[i].hour  = (int)((v >> 16) & 0xFF);
-    }
+  // Données météo d'UNE localisation : copiées dans tous les jeux du masque WX_SLOTS (absent = tous)
+  if ((t = dict_find(iter, MESSAGE_KEY_FORECAST_TS))) {
+    uint32_t mask = (1u << WX_N) - 1u;
+    Tuple *tm_ = dict_find(iter, MESSAGE_KEY_WX_SLOTS);
+    if (tm_) mask = (uint32_t)tm_->value->int32;
+    time_t ts = (time_t)t->value->int32;
+    for (int k = 0; k < WX_N; k++) if (mask & (1u << k)) wx_apply(iter, &s_wx[k], ts);
+    // La rangée du bas prolonge celle du haut seulement si elles partagent la localisation (même message)
+    if (mask & (1u << WX_BOT)) s_bot_cont = (mask & (1u << WX_TOP)) != 0;
+    s_fc_ts = ts;
   }
-  if ((t = dict_find(iter, MESSAGE_KEY_FORECAST_TS))) s_fc_ts = (time_t)t->value->int32;
-  
+
   if ((t = dict_find(iter, MESSAGE_KEY_WEATHER_TREND))) {
   strncpy(s_weather_trend, t->value->cstring, sizeof(s_weather_trend) - 1);
   s_weather_trend[sizeof(s_weather_trend) - 1] = '\0';
+  s_fc_ts = time(NULL);   // un message météo est arrivé (même « tendance seule ») : le garde-fou se calme
   }
   
   if (s_canvas) layer_mark_dirty(s_canvas);
@@ -2705,12 +2863,15 @@ static void window_load(Window *w) {
       {0, true}, {0, false}, {2, true}, {2, false}, {3, true}, {45, true},
       {61, true}, {65, true}, {73, true}, {95, true}, {96, true}
     };
-    for (int i = 0; i < FC_COLS; i++) {
-      int k = (i + CFG_ICON_TEST - 1) % 11;
-      s_fc[i].code = T[k].code;
-      s_fc[i].day  = T[k].day;
-      s_fc[i].temp = -5 + 3 * i;
-      s_fc[i].hour = (14 + i) % 24;
+    for (int w = 0; w < WX_N; w++) {
+      for (int i = 0; i < FC_COLS; i++) {
+        int k = (i + CFG_ICON_TEST - 1) % 11;
+        s_wx[w].fc[i].code = T[k].code;
+        s_wx[w].fc[i].day  = T[k].day;
+        s_wx[w].fc[i].temp = -5 + 3 * i;
+        s_wx[w].fc[i].hour = (14 + i) % 24;
+      }
+      s_wx[w].ts = time(NULL);
     }
     s_fc_ts = time(NULL);
   }
@@ -2763,7 +2924,10 @@ static void load_settings(void) {
 
 static void init(void) {
   init_forecast_keys();
-  for (int i = 0; i < 6; i++) s_daily[i].code = FC_UNKNOWN;   // pas encore de tendance
+  for (int w = 0; w < WX_N; w++) {                            // pas encore de données météo
+    for (int i = 0; i < 6; i++) s_wx[w].daily[i].code = FC_UNKNOWN;
+    s_wx[w].hum = s_wx[w].uv10 = s_wx[w].aqi = s_wx[w].wind10 = -1;
+  }
   load_settings();
   battery_state_service_subscribe(battery_state_handler);
   s_batt_pct = (int)battery_state_service_peek().charge_percent;
@@ -2786,7 +2950,7 @@ static void init(void) {
   {
     uint32_t in_max  = app_message_inbox_size_maximum();
     uint32_t out_max = app_message_outbox_size_maximum();
-    app_message_open(in_max  < 768u ? in_max  : 768u,   // 512 → 768 : tendance 3 jours + 3 réglages en plus
+    app_message_open(in_max  < 768u ? in_max  : 768u,   // un message = une localisation (≈ 330 octets de données + tendance)
                      out_max < 256u ? out_max : 256u);
   }
   app_message_register_inbox_received(inbox_received);
